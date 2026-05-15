@@ -25,6 +25,12 @@ type NotificacionResponse = {
   fecha_creacion: Date;
 };
 
+type MarkAllAsReadResponse = {
+  updated: number;
+  ids_notificacion: number[];
+  fecha_leida: Date | null;
+};
+
 type PagoAsignadoNotificationInput = {
   idUsuarioOrigen: number;
   idTransaccion: number;
@@ -79,7 +85,10 @@ export class NotificacionesService implements OnModuleInit {
         },
       }),
       this.notificacionesRepository.find({
-        where: { id_usuario_destino: idUsuario },
+        where: {
+          id_usuario_destino: idUsuario,
+          leida: false,
+        },
         order: { fecha_creacion: 'DESC', id_notificacion: 'DESC' },
         take: normalizedLimit,
       }),
@@ -91,7 +100,7 @@ export class NotificacionesService implements OnModuleInit {
     };
   }
 
-  async markAllAsRead(idUsuario: number): Promise<{ updated: number }> {
+  async markAllAsRead(idUsuario: number): Promise<MarkAllAsReadResponse> {
     await this.ensureSchemaReady();
 
     const unreadNotifications = await this.notificacionesRepository.find({
@@ -102,7 +111,7 @@ export class NotificacionesService implements OnModuleInit {
     });
 
     if (unreadNotifications.length === 0) {
-      return { updated: 0 };
+      return { updated: 0, ids_notificacion: [], fecha_leida: null };
     }
 
     const readAt = new Date();
@@ -113,7 +122,13 @@ export class NotificacionesService implements OnModuleInit {
 
     await this.notificacionesRepository.save(unreadNotifications);
 
-    return { updated: unreadNotifications.length };
+    return {
+      updated: unreadNotifications.length,
+      ids_notificacion: unreadNotifications.map(
+        (notification) => notification.id_notificacion,
+      ),
+      fecha_leida: readAt,
+    };
   }
 
   async markAsRead(

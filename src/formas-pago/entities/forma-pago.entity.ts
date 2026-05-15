@@ -1,6 +1,6 @@
 import { CreateDateColumn, Column, Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { EntidadFinanciera } from 'entidades-financieras/entities/entidad-financiera.entity';
-import { TipoProducto } from 'tipo-producto/entities/tipo-producto.entity';
+import { EntidadFinanciera } from '../../entidades-financieras/entities/entidad-financiera.entity';
+import { TipoProducto } from '../../tipo-producto/entities/tipo-producto.entity';
 
 @Entity({ name: 'metodos_pago' })
 export class FormaPago {

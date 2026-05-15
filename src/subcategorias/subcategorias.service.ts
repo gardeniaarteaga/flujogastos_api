@@ -56,6 +56,7 @@ export class SubcategoriasService {
   async findAll(idUsuario: number): Promise<SubcategoriaResponse[]> {
     const adminUserIds = await listAdminUserIds(this.subcategoriasRepository);
     const categoriasVisibles = await this.findCategoriasVisibles(idUsuario, adminUserIds);
+    const usuariosVisibles = Array.from(new Set([...adminUserIds, idUsuario]));
 
     if (categoriasVisibles.length === 0) {
       return [];
@@ -64,6 +65,7 @@ export class SubcategoriasService {
     const subcategorias = await this.subcategoriasRepository.find({
       where: {
         id_categoria: In(categoriasVisibles.map((categoria) => categoria.id_categoria)),
+        id_usuario: In(usuariosVisibles),
       },
       order: { id_subcategoria: 'ASC' },
     });
@@ -111,9 +113,17 @@ export class SubcategoriasService {
   async remove(id: number, idUsuario: number) {
     const adminUserIds = await listAdminUserIds(this.subcategoriasRepository);
     const currentUserIsAdmin = adminUserIds.includes(idUsuario);
-    const subcategoria = currentUserIsAdmin
-      ? await this.findVisibleSubcategoria(id, idUsuario, adminUserIds)
-      : await this.findOwnedSubcategoria(id, idUsuario);
+    if (!currentUserIsAdmin) {
+      throw new ForbiddenException(
+        'No tienes permisos para eliminar subcategorias',
+      );
+    }
+
+    const subcategoria = await this.findVisibleSubcategoria(
+      id,
+      idUsuario,
+      adminUserIds,
+    );
 
     await this.subcategoriasRepository.remove(subcategoria);
 
@@ -211,7 +221,7 @@ export class SubcategoriasService {
       ...subcategoria,
       es_predeterminada: esPredeterminada,
       puede_editar: puedeEditar,
-      puede_eliminar: currentUserIsAdmin || (puedeEditar && !esPredeterminada),
+      puede_eliminar: currentUserIsAdmin,
     };
   }
 }
