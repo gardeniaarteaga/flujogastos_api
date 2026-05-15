@@ -13,6 +13,7 @@ async function bootstrap() {
       'http://127.0.0.1',
       'http://localhost:4200',
       'http://127.0.0.1:4200',
+      'https://flujogastosapp-production.up.railway.app/'
     ],
   });
   app.setGlobalPrefix('api');
