@@ -3,27 +3,26 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
+} from "@nestjs/common";
+import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
+import { Brackets, DataSource, EntityManager, In, Repository } from "typeorm";
 
-import { buildVisibleUserIds } from '../common/admin-visibility.util';
-import { Categoria } from '../categorias/entities/categoria.entity';
-import { EstadoTransaccion } from '../estados-transaccion/entities/estado-transaccion.entity';
-import { FormaPago } from '../formas-pago/entities/forma-pago.entity';
-import { NotificacionesService } from '../notificaciones/notificaciones.service';
-import { Participante } from '../participantes/entities/participante.entity';
-import { Subcategoria } from '../subcategorias/entities/subcategoria.entity';
-import { TipoTransaccion } from '../tipo-transaccion/entities/tipo-transaccion.entity';
-import { Usuario } from '../usuarios/entities/usuario.entity';
-import { ApplyPagosTransaccionDto } from './dto/apply-pagos-transaccion.dto';
-import { ApplyCuotaActualizadaDto } from './dto/apply-cuota-actualizada.dto';
-import { CuotaProgramadaDto } from './dto/cuota-programada.dto';
-import { CreateDetalleTransaccionDto } from './dto/create-detalle-transaccion.dto';
-import { CreateTransaccionDto } from './dto/create-transaccion.dto';
-import { UpdateTransaccionDto } from './dto/update-transaccion.dto';
-import { DetalleTransaccion } from './entities/detalle-transaccion.entity';
-import { Transaccion } from './entities/transaccion.entity';
+import { buildVisibleUserIds } from "../common/admin-visibility.util";
+import { Categoria } from "../categorias/entities/categoria.entity";
+import { EstadoTransaccion } from "../estados-transaccion/entities/estado-transaccion.entity";
+import { FormaPago } from "../formas-pago/entities/forma-pago.entity";
+import { NotificacionesService } from "../notificaciones/notificaciones.service";
+import { Participante } from "../participantes/entities/participante.entity";
+import { Subcategoria } from "../subcategorias/entities/subcategoria.entity";
+import { TipoTransaccion } from "../tipo-transaccion/entities/tipo-transaccion.entity";
+import { Usuario } from "../usuarios/entities/usuario.entity";
+import { ApplyPagosTransaccionDto } from "./dto/apply-pagos-transaccion.dto";
+import { ApplyCuotaActualizadaDto } from "./dto/apply-cuota-actualizada.dto";
+import { CuotaProgramadaDto } from "./dto/cuota-programada.dto";
+import { CreateTransaccionDto } from "./dto/create-transaccion.dto";
+import { UpdateTransaccionDto } from "./dto/update-transaccion.dto";
+import { DetalleTransaccion } from "./entities/detalle-transaccion.entity";
+import { Transaccion } from "./entities/transaccion.entity";
 
 const DETALLE_TIPO_TRANSACCION_TITULAR_ID = 1;
 const DETALLE_TIPO_TRANSACCION_PARTICIPANTE_ID = 2;
@@ -157,9 +156,24 @@ export class TransaccionesService {
       createTransaccionDto,
       idUsuario,
     );
+    const estadoPendiente = await this.findEstadoByFlagAndName(
+      "T",
+      "PENDIENTE",
+    );
+    const estadoPagoParcial = await this.findEstadoByFlagAndName(
+      "T",
+      "PAGO PARCIAL",
+    );
+    const estadoPagado = await this.findEstadoByFlagAndName("T", "PAGADO");
     const titularParticipante = await this.ensureTitularParticipante(idUsuario);
-    const estadoRegistroPendiente = await this.findEstadoByFlagAndName('R', 'PENDIENTE');
-    const estadoRegistroCompletado = await this.findEstadoByFlagAndName('R', 'COMPLETADO');
+    const estadoRegistroPendiente = await this.findEstadoByFlagAndName(
+      "R",
+      "PENDIENTE",
+    );
+    const estadoRegistroCompletado = await this.findEstadoByFlagAndName(
+      "R",
+      "COMPLETADO",
+    );
 
     this.validateTitularNotRepeated(
       resolvedInput.participantes_detalle,
@@ -199,6 +213,13 @@ export class TransaccionesService {
         titularParticipante.id_participante,
         resolvedInput,
       );
+      savedTransaccion.id_estado = this.resolveEstadoTransaccionDesdeDetalles(
+        resolvedInput.id_tipo_transaccion,
+        detallesGuardados,
+        estadoPendiente.id_estado,
+        estadoPagoParcial.id_estado,
+        estadoPagado.id_estado,
+      );
       savedTransaccion.saldo_pendiente = this.toNumericString(
         this.calculateTransaccionSaldoPendiente(detallesGuardados),
       );
@@ -220,12 +241,14 @@ export class TransaccionesService {
   async findAll(idUsuario: number): Promise<TransaccionResponse[]> {
     const transaccionesPropias = await this.transaccionesRepository.find({
       where: { id_usuario: idUsuario },
-      order: { fecha: 'DESC', id_transaccion: 'DESC' },
+      order: { fecha: "DESC", id_transaccion: "DESC" },
     });
-    const detallesRelacionados = await this.detalleTransaccionesRepository.find({
-      where: { id_usuario_relacionado: idUsuario },
-      order: { id: 'ASC' },
-    });
+    const detallesRelacionados = await this.detalleTransaccionesRepository.find(
+      {
+        where: { id_usuario_relacionado: idUsuario },
+        order: { id: "ASC" },
+      },
+    );
     const transaccionesPropiasIds = new Set(
       transaccionesPropias.map((transaccion) => transaccion.id_transaccion),
     );
@@ -240,18 +263,19 @@ export class TransaccionesService {
             where: { id_transaccion: In(transaccionesRelacionadasIds) },
           })
         : [];
-    const transacciones = [...transaccionesPropias, ...transaccionesRelacionadas].sort(
-      (left, right) => {
-        const leftDate = new Date(left.fecha).getTime();
-        const rightDate = new Date(right.fecha).getTime();
+    const transacciones = [
+      ...transaccionesPropias,
+      ...transaccionesRelacionadas,
+    ].sort((left, right) => {
+      const leftDate = new Date(left.fecha).getTime();
+      const rightDate = new Date(right.fecha).getTime();
 
-        if (leftDate !== rightDate) {
-          return rightDate - leftDate;
-        }
+      if (leftDate !== rightDate) {
+        return rightDate - leftDate;
+      }
 
-        return right.id_transaccion - left.id_transaccion;
-      },
-    );
+      return right.id_transaccion - left.id_transaccion;
+    });
 
     return this.buildDetailedResponses(transacciones, idUsuario);
   }
@@ -265,7 +289,15 @@ export class TransaccionesService {
     const hasAppliedPayments = this.hasAppliedPayments(
       visibleTransaccion.detalles,
     );
-    const estadoPendiente = await this.findEstadoByFlagAndName('T', 'PENDIENTE');
+    const estadoPendiente = await this.findEstadoByFlagAndName(
+      "T",
+      "PENDIENTE",
+    );
+    const estadoPagoParcial = await this.findEstadoByFlagAndName(
+      "T",
+      "PAGO PARCIAL",
+    );
+    const estadoPagado = await this.findEstadoByFlagAndName("T", "PAGADO");
     const resolvedInput = await this.resolveTransaccionInput(
       updateTransaccionDto,
       idUsuario,
@@ -273,7 +305,9 @@ export class TransaccionesService {
       visibleTransaccion.detalles,
       visibleTransaccion.titularParticipante.id_participante,
     );
-    resolvedInput.intereses = Number(visibleTransaccion.transaccion.intereses ?? 0);
+    resolvedInput.intereses = Number(
+      visibleTransaccion.transaccion.intereses ?? 0,
+    );
 
     this.validateTitularNotRepeated(
       resolvedInput.participantes_detalle,
@@ -287,28 +321,43 @@ export class TransaccionesService {
         resolvedInput,
       );
     }
-    const estadoRegistroPendiente = await this.findEstadoByFlagAndName('R', 'PENDIENTE');
-    const estadoRegistroCompletado = await this.findEstadoByFlagAndName('R', 'COMPLETADO');
+    const estadoRegistroPendiente = await this.findEstadoByFlagAndName(
+      "R",
+      "PENDIENTE",
+    );
+    const estadoRegistroCompletado = await this.findEstadoByFlagAndName(
+      "R",
+      "COMPLETADO",
+    );
     let detallesGuardados: DetalleTransaccion[] = [];
 
     await this.dataSource.transaction(async (manager) => {
       visibleTransaccion.transaccion.fecha = resolvedInput.fecha;
-      visibleTransaccion.transaccion.monto = this.toNumericString(resolvedInput.monto);
-      visibleTransaccion.transaccion.id_tipo_transaccion = resolvedInput.id_tipo_transaccion;
-      visibleTransaccion.transaccion.id_metodo_pago = resolvedInput.id_metodo_pago;
+      visibleTransaccion.transaccion.monto = this.toNumericString(
+        resolvedInput.monto,
+      );
+      visibleTransaccion.transaccion.id_tipo_transaccion =
+        resolvedInput.id_tipo_transaccion;
+      visibleTransaccion.transaccion.id_metodo_pago =
+        resolvedInput.id_metodo_pago;
       visibleTransaccion.transaccion.id_categoria = resolvedInput.id_categoria;
-      visibleTransaccion.transaccion.id_subcategoria = resolvedInput.id_subcategoria;
+      visibleTransaccion.transaccion.id_subcategoria =
+        resolvedInput.id_subcategoria;
       visibleTransaccion.transaccion.id_estado = resolvedInput.id_estado;
-      visibleTransaccion.transaccion.intereses = this.toNumericString(resolvedInput.intereses);
+      visibleTransaccion.transaccion.intereses = this.toNumericString(
+        resolvedInput.intereses,
+      );
       visibleTransaccion.transaccion.cuotas_sin_intereses =
         resolvedInput.cuotas_sin_intereses;
-      visibleTransaccion.transaccion.id_estado_registro = this.resolveEstadoRegistroDesdeIngreso(
-        resolvedInput,
-        estadoRegistroPendiente.id_estado,
-        estadoRegistroCompletado.id_estado,
-      );
+      visibleTransaccion.transaccion.id_estado_registro =
+        this.resolveEstadoRegistroDesdeIngreso(
+          resolvedInput,
+          estadoRegistroPendiente.id_estado,
+          estadoRegistroCompletado.id_estado,
+        );
       visibleTransaccion.transaccion.descripcion = resolvedInput.descripcion;
-      visibleTransaccion.transaccion.pagocompartido = resolvedInput.pagocompartido;
+      visibleTransaccion.transaccion.pagocompartido =
+        resolvedInput.pagocompartido;
 
       await manager.save(Transaccion, visibleTransaccion.transaccion);
       if (hasAppliedPayments) {
@@ -320,7 +369,10 @@ export class TransaccionesService {
           estadoPendiente.id_estado,
         );
       } else {
-        await manager.delete(DetalleTransaccion, { id_transaccion: id, id_usuario: idUsuario });
+        await manager.delete(DetalleTransaccion, {
+          id_transaccion: id,
+          id_usuario: idUsuario,
+        });
 
         detallesGuardados = await this.saveDetallesTransaccion(
           manager,
@@ -330,6 +382,14 @@ export class TransaccionesService {
           resolvedInput,
         );
       }
+      visibleTransaccion.transaccion.id_estado =
+        this.resolveEstadoTransaccionDesdeDetalles(
+          resolvedInput.id_tipo_transaccion,
+          detallesGuardados,
+          estadoPendiente.id_estado,
+          estadoPagoParcial.id_estado,
+          estadoPagado.id_estado,
+        );
       visibleTransaccion.transaccion.saldo_pendiente = this.toNumericString(
         this.calculateTransaccionSaldoPendiente(detallesGuardados),
       );
@@ -348,10 +408,14 @@ export class TransaccionesService {
 
   async complete(id: number, idUsuario: number): Promise<TransaccionResponse> {
     const visibleTransaccion = await this.findOwnedTransaccion(id, idUsuario);
-    const estadoRegistroCompletado = await this.findEstadoByFlagAndName('R', 'COMPLETADO');
+    const estadoRegistroCompletado = await this.findEstadoByFlagAndName(
+      "R",
+      "COMPLETADO",
+    );
 
     await this.dataSource.transaction(async (manager) => {
-      visibleTransaccion.transaccion.id_estado_registro = estadoRegistroCompletado.id_estado;
+      visibleTransaccion.transaccion.id_estado_registro =
+        estadoRegistroCompletado.id_estado;
       await manager.save(Transaccion, visibleTransaccion.transaccion);
     });
 
@@ -363,10 +427,19 @@ export class TransaccionesService {
     applyPagosDto: ApplyPagosTransaccionDto,
     idUsuario: number,
   ): Promise<TransaccionResponse> {
-    const visibleTransaccion = await this.findAccessibleTransaccion(id, idUsuario);
-    const estadoPendiente = await this.findEstadoByFlagAndName('T', 'PENDIENTE');
-    const estadoPagoParcial = await this.findEstadoByFlagAndName('T', 'PAGO PARCIAL');
-    const estadoPagado = await this.findEstadoByFlagAndName('T', 'PAGADO');
+    const visibleTransaccion = await this.findAccessibleTransaccion(
+      id,
+      idUsuario,
+    );
+    const estadoPendiente = await this.findEstadoByFlagAndName(
+      "T",
+      "PENDIENTE",
+    );
+    const estadoPagoParcial = await this.findEstadoByFlagAndName(
+      "T",
+      "PAGO PARCIAL",
+    );
+    const estadoPagado = await this.findEstadoByFlagAndName("T", "PAGADO");
     const fechaPagoActual = this.todayAsLocalIsoDate();
     const fechaUltimoPagoActual = new Date();
     const notificacionesCobro: Array<{
@@ -382,7 +455,10 @@ export class TransaccionesService {
         visibleTransaccion.detalles.map((detalle) => detalle.id),
       );
       const detallesMap = new Map(
-        visibleTransaccion.detallesCompletos.map((detalle) => [detalle.id, detalle]),
+        visibleTransaccion.detallesCompletos.map((detalle) => [
+          detalle.id,
+          detalle,
+        ]),
       );
 
       if ((applyPagosDto.cuotas_actualizadas?.length ?? 0) > 0) {
@@ -413,11 +489,14 @@ export class TransaccionesService {
         }
 
         const montoCuotaCentavos = this.toCents(Number(detalle.monto));
-        const montoPagadoActualCentavos = this.toCents(Number(detalle.monto_pagado ?? 0));
+        const montoPagadoActualCentavos = this.toCents(
+          Number(detalle.monto_pagado ?? 0),
+        );
         const interesPagadoActualCentavos = this.toCents(
           Number(detalle.interes_pagado ?? 0),
         );
-        const interesPendienteCentavos = this.getInteresPendienteCentavos(detalle);
+        const interesPendienteCentavos =
+          this.getInteresPendienteCentavos(detalle);
         const montoPendienteCentavos = this.getSaldoPendienteCentavos(detalle);
 
         if (montoPendienteCentavos <= 0) {
@@ -440,7 +519,10 @@ export class TransaccionesService {
           monto: this.centsToAmount(montoPagoCentavos),
         });
 
-        const pagoInteresCentavos = Math.min(montoPagoCentavos, interesPendienteCentavos);
+        const pagoInteresCentavos = Math.min(
+          montoPagoCentavos,
+          interesPendienteCentavos,
+        );
         const pagoPrincipalCentavos = montoPagoCentavos - pagoInteresCentavos;
         const interesPagadoActualizadoCentavos =
           interesPagadoActualCentavos + pagoInteresCentavos;
@@ -498,12 +580,14 @@ export class TransaccionesService {
         (left, right) => left.id - right.id,
       );
 
-      visibleTransaccion.transaccion.id_estado = this.resolveEstadoPagoTransaccion(
-        detallesActualizados,
-        estadoPendiente.id_estado,
-        estadoPagoParcial.id_estado,
-        estadoPagado.id_estado,
-      );
+      visibleTransaccion.transaccion.id_estado =
+        this.resolveEstadoTransaccionDesdeDetalles(
+          visibleTransaccion.transaccion.id_tipo_transaccion,
+          detallesActualizados,
+          estadoPendiente.id_estado,
+          estadoPagoParcial.id_estado,
+          estadoPagado.id_estado,
+        );
       visibleTransaccion.transaccion.saldo_pendiente = this.toNumericString(
         this.calculateTransaccionSaldoPendiente(detallesActualizados),
       );
@@ -540,7 +624,10 @@ export class TransaccionesService {
           item.id_transaccion === detalle.id_transaccion &&
           item.id_participante === detalle.id_participante,
       )
-      .sort((left, right) => left.numero_cuota - right.numero_cuota || left.id - right.id);
+      .sort(
+        (left, right) =>
+          left.numero_cuota - right.numero_cuota || left.id - right.id,
+      );
 
     const saldoRestante = this.centsToAmount(saldoRestanteCentavos);
     const currentCuotaNumber = detalle.numero_cuota;
@@ -585,11 +672,16 @@ export class TransaccionesService {
     });
 
     await manager.save(DetalleTransaccion, detalle);
-    const nuevoDetalle = await manager.save(DetalleTransaccion, detalleSaldoComplementario);
+    const nuevoDetalle = await manager.save(
+      DetalleTransaccion,
+      detalleSaldoComplementario,
+    );
     detallesMap.set(detalle.id, detalle);
     detallesMap.set(nuevoDetalle.id, nuevoDetalle);
 
-    const cuotasExistentes = cuotasParticipante.filter((item) => item.id !== detalle.id);
+    const cuotasExistentes = cuotasParticipante.filter(
+      (item) => item.id !== detalle.id,
+    );
 
     for (const cuota of cuotasExistentes) {
       if (cuota.numero_cuota > currentCuotaNumber) {
@@ -606,12 +698,13 @@ export class TransaccionesService {
     const estadoAnulada = await this.findEstado(ESTADO_TRANSACCION_ANULADA_ID);
     const estadoRegistroAnulado = await this.findEstadoByIdAndFlag(
       ESTADO_REGISTRO_ANULADO_ID,
-      'R',
+      "R",
     );
 
     await this.dataSource.transaction(async (manager) => {
       visibleTransaccion.transaccion.id_estado = estadoAnulada.id_estado;
-      visibleTransaccion.transaccion.id_estado_registro = estadoRegistroAnulado.id_estado;
+      visibleTransaccion.transaccion.id_estado_registro =
+        estadoRegistroAnulado.id_estado;
       await manager.save(Transaccion, visibleTransaccion.transaccion);
 
       visibleTransaccion.detalles.forEach((detalle) => {
@@ -623,18 +716,37 @@ export class TransaccionesService {
     return this.findOneDetailed(id, idUsuario);
   }
 
-  async reactivate(id: number, idUsuario: number): Promise<TransaccionResponse> {
+  async reactivate(
+    id: number,
+    idUsuario: number,
+  ): Promise<TransaccionResponse> {
     const visibleTransaccion = await this.findOwnedTransaccion(id, idUsuario);
 
-    if (visibleTransaccion.transaccion.id_estado !== ESTADO_TRANSACCION_ANULADA_ID) {
-      throw new BadRequestException('Solo se pueden reactivar transacciones anuladas');
+    if (
+      visibleTransaccion.transaccion.id_estado !== ESTADO_TRANSACCION_ANULADA_ID
+    ) {
+      throw new BadRequestException(
+        "Solo se pueden reactivar transacciones anuladas",
+      );
     }
 
-    const estadoPendiente = await this.findEstadoByFlagAndName('T', 'PENDIENTE');
-    const estadoPagoParcial = await this.findEstadoByFlagAndName('T', 'PAGO PARCIAL');
-    const estadoPagado = await this.findEstadoByFlagAndName('T', 'PAGADO');
-    const estadoRegistroPendiente = await this.findEstadoByFlagAndName('R', 'PENDIENTE');
-    const estadoRegistroCompletado = await this.findEstadoByFlagAndName('R', 'COMPLETADO');
+    const estadoPendiente = await this.findEstadoByFlagAndName(
+      "T",
+      "PENDIENTE",
+    );
+    const estadoPagoParcial = await this.findEstadoByFlagAndName(
+      "T",
+      "PAGO PARCIAL",
+    );
+    const estadoPagado = await this.findEstadoByFlagAndName("T", "PAGADO");
+    const estadoRegistroPendiente = await this.findEstadoByFlagAndName(
+      "R",
+      "PENDIENTE",
+    );
+    const estadoRegistroCompletado = await this.findEstadoByFlagAndName(
+      "R",
+      "COMPLETADO",
+    );
 
     await this.dataSource.transaction(async (manager) => {
       visibleTransaccion.detalles.forEach((detalle) => {
@@ -653,13 +765,14 @@ export class TransaccionesService {
 
       await manager.save(DetalleTransaccion, visibleTransaccion.detalles);
 
-      visibleTransaccion.transaccion.id_estado = this.resolveReactivatedTransaccionEstado(
-        visibleTransaccion.transaccion.id_tipo_transaccion,
-        visibleTransaccion.detalles,
-        estadoPendiente.id_estado,
-        estadoPagoParcial.id_estado,
-        estadoPagado.id_estado,
-      );
+      visibleTransaccion.transaccion.id_estado =
+        this.resolveEstadoTransaccionDesdeDetalles(
+          visibleTransaccion.transaccion.id_tipo_transaccion,
+          visibleTransaccion.detalles,
+          estadoPendiente.id_estado,
+          estadoPagoParcial.id_estado,
+          estadoPagado.id_estado,
+        );
       visibleTransaccion.transaccion.id_estado_registro =
         this.resolveEstadoRegistroDesdeDetalles(
           Number(visibleTransaccion.transaccion.monto),
@@ -698,26 +811,28 @@ export class TransaccionesService {
         ? this.summarizeTitularDetalles(existingDetalles, titularParticipanteId)
         : null;
     const participantesExistentesMap = new Map(
-      participantesExistentes.map((detalle) => [detalle.id_participante, detalle]),
+      participantesExistentes.map((detalle) => [
+        detalle.id_participante,
+        detalle,
+      ]),
     );
     const participantesDetalle =
       dto.pagocompartido === false
         ? []
-        : (dto.participantes_detalle ??
-          participantesExistentes).map((detalle) => ({
-          id_participante: detalle.id_participante,
-          monto: detalle.monto,
-          cuotas: this.resolveCuotasInput(
-            detalle.monto,
-            detalle.cuotas,
-            detalle.cantidad_cuotas,
-            participantesExistentesMap.get(detalle.id_participante)?.cuotas,
-          ),
-          cantidad_cuotas:
-            detalle.cuotas?.length ??
-            detalle.cantidad_cuotas ??
-            1,
-        }));
+        : (dto.participantes_detalle ?? participantesExistentes).map(
+            (detalle) => ({
+              id_participante: detalle.id_participante,
+              monto: detalle.monto,
+              cuotas: this.resolveCuotasInput(
+                detalle.monto,
+                detalle.cuotas,
+                detalle.cantidad_cuotas,
+                participantesExistentesMap.get(detalle.id_participante)?.cuotas,
+              ),
+              cantidad_cuotas:
+                detalle.cuotas?.length ?? detalle.cantidad_cuotas ?? 1,
+            }),
+          );
     const montoTitular =
       dto.monto ??
       (existingTransaccion ? Number(existingTransaccion.monto) : 0);
@@ -730,24 +845,26 @@ export class TransaccionesService {
       fecha: dto.fecha ?? existingTransaccion?.fecha ?? this.todayAsIsoDate(),
       calcula_interes: false,
       cuotas_sin_intereses:
-        dto.cuotas_sin_intereses ?? existingTransaccion?.cuotas_sin_intereses ?? false,
+        dto.cuotas_sin_intereses ??
+        existingTransaccion?.cuotas_sin_intereses ??
+        false,
       fecha_inicio_interes: null,
       monto: montoTitular,
       intereses:
         dto.intereses ??
         (existingTransaccion ? Number(existingTransaccion.intereses ?? 0) : 0),
       id_tipo_transaccion:
-        dto.id_tipo_transaccion ?? existingTransaccion?.id_tipo_transaccion ?? 1,
+        dto.id_tipo_transaccion ??
+        existingTransaccion?.id_tipo_transaccion ??
+        1,
       id_metodo_pago:
         dto.id_metodo_pago ?? existingTransaccion?.id_metodo_pago ?? 0,
-      id_categoria:
-        dto.id_categoria ?? existingTransaccion?.id_categoria ?? 0,
+      id_categoria: dto.id_categoria ?? existingTransaccion?.id_categoria ?? 0,
       id_subcategoria:
         dto.id_subcategoria !== undefined
-          ? dto.id_subcategoria ?? null
+          ? (dto.id_subcategoria ?? null)
           : (existingTransaccion?.id_subcategoria ?? null),
-      id_estado:
-        dto.id_estado ?? existingTransaccion?.id_estado ?? 0,
+      id_estado: dto.id_estado ?? existingTransaccion?.id_estado ?? 0,
       descripcion:
         dto.descripcion !== undefined
           ? this.normalizeDescripcion(dto.descripcion)
@@ -770,7 +887,10 @@ export class TransaccionesService {
       participantes_detalle: participantesDetalle,
     };
 
-    await this.findVisibleTipoTransaccion(resolvedInput.id_tipo_transaccion, idUsuario);
+    await this.findVisibleTipoTransaccion(
+      resolvedInput.id_tipo_transaccion,
+      idUsuario,
+    );
     const formaPago = await this.findVisibleFormaPago(
       resolvedInput.id_metodo_pago,
       idUsuario,
@@ -788,11 +908,11 @@ export class TransaccionesService {
 
     resolvedInput.fecha_inicio_interes =
       resolvedInput.calcula_interes && !resolvedInput.cuotas_sin_intereses
-      ? this.calculateFechaInicioInteres(
-          resolvedInput.fecha,
-          formaPago.dias_gracia,
-        )
-      : null;
+        ? this.calculateFechaInicioInteres(
+            resolvedInput.fecha,
+            formaPago.dias_gracia,
+          )
+        : null;
 
     if (resolvedInput.id_subcategoria !== null) {
       await this.findVisibleSubcategoria(
@@ -811,7 +931,7 @@ export class TransaccionesService {
 
     if (resolvedInput.cantidad_cuotas_titular < 1) {
       throw new BadRequestException(
-        'El titular debe tener al menos una cuota configurada',
+        "El titular debe tener al menos una cuota configurada",
       );
     }
 
@@ -822,7 +942,10 @@ export class TransaccionesService {
     );
 
     if (resolvedInput.pagocompartido) {
-      await this.findVisibleParticipantes(resolvedInput.participantes_detalle, idUsuario);
+      await this.findVisibleParticipantes(
+        resolvedInput.participantes_detalle,
+        idUsuario,
+      );
     }
 
     const montoTitularCalculado = this.calculateTitularMonto(
@@ -837,12 +960,13 @@ export class TransaccionesService {
     );
 
     const allowZeroAmountCuotas =
-      existingTransaccion !== undefined && this.hasAppliedPayments(existingDetalles);
+      existingTransaccion !== undefined &&
+      this.hasAppliedPayments(existingDetalles);
 
     this.validateCuotasCubrenMonto(
       resolvedInput.cuotas_titular,
       montoTitularCalculado,
-      'titular',
+      "titular",
       allowZeroAmountCuotas,
     );
 
@@ -863,17 +987,28 @@ export class TransaccionesService {
     idEstadoActual: number,
     formaPago: FormaPago,
   ): Promise<number> {
+    if (idTipoTransaccion === 2) {
+      const estadoPendiente = await this.findEstadoByFlagAndName(
+        "T",
+        "PENDIENTE",
+      );
+      return estadoPendiente.id_estado;
+    }
+
     if (idTipoTransaccion !== 1) {
       return idEstadoActual;
     }
 
     if (formaPago.tipo_producto?.pago_inmediato === true) {
-      const estadoPagado = await this.findEstadoByFlagAndName('T', 'PAGADO');
+      const estadoPagado = await this.findEstadoByFlagAndName("T", "PAGADO");
       return estadoPagado.id_estado;
     }
 
     if (formaPago.tipo_producto?.pago_inmediato === false) {
-      const estadoPendiente = await this.findEstadoByFlagAndName('T', 'PENDIENTE');
+      const estadoPendiente = await this.findEstadoByFlagAndName(
+        "T",
+        "PENDIENTE",
+      );
       return estadoPendiente.id_estado;
     }
 
@@ -897,7 +1032,9 @@ export class TransaccionesService {
         ? await manager.find(Participante, {
             where: {
               id_participante: In(
-                resolvedInput.participantes_detalle.map((detalle) => detalle.id_participante),
+                resolvedInput.participantes_detalle.map(
+                  (detalle) => detalle.id_participante,
+                ),
               ),
             },
           })
@@ -908,7 +1045,8 @@ export class TransaccionesService {
         participante.id_usuario_relacionado ?? null,
       ]),
     );
-    const fechaInicioInteres = resolvedInput.fecha_inicio_interes ?? resolvedInput.fecha;
+    const fechaInicioInteres =
+      resolvedInput.fecha_inicio_interes ?? resolvedInput.fecha;
 
     const detalleEntities = [
       ...(titularTieneParticipacion
@@ -957,8 +1095,14 @@ export class TransaccionesService {
     id: number,
     idUsuario: number,
   ): Promise<TransaccionResponse> {
-    const visibleTransaccion = await this.findAccessibleTransaccion(id, idUsuario);
-    const responses = await this.buildDetailedResponses([visibleTransaccion.transaccion], idUsuario);
+    const visibleTransaccion = await this.findAccessibleTransaccion(
+      id,
+      idUsuario,
+    );
+    const responses = await this.buildDetailedResponses(
+      [visibleTransaccion.transaccion],
+      idUsuario,
+    );
 
     const response = responses[0];
 
@@ -990,7 +1134,7 @@ export class TransaccionesService {
 
     const detalles = await this.detalleTransaccionesRepository.find({
       where: { id_transaccion: id, id_usuario: idUsuario },
-      order: { id: 'ASC' },
+      order: { id: "ASC" },
     });
 
     return {
@@ -1016,7 +1160,7 @@ export class TransaccionesService {
     if (transaccionPropia) {
       const detallesCompletos = await this.detalleTransaccionesRepository.find({
         where: { id_transaccion: id },
-        order: { id: 'ASC' },
+        order: { id: "ASC" },
       });
 
       return {
@@ -1037,10 +1181,12 @@ export class TransaccionesService {
       );
     }
 
-    const detallesRelacionados = await this.detalleTransaccionesRepository.find({
-      where: { id_transaccion: id, id_usuario_relacionado: idUsuario },
-      order: { id: 'ASC' },
-    });
+    const detallesRelacionados = await this.detalleTransaccionesRepository.find(
+      {
+        where: { id_transaccion: id, id_usuario_relacionado: idUsuario },
+        order: { id: "ASC" },
+      },
+    );
 
     if (detallesRelacionados.length === 0) {
       throw new NotFoundException(
@@ -1050,7 +1196,7 @@ export class TransaccionesService {
 
     const detallesCompletos = await this.detalleTransaccionesRepository.find({
       where: { id_transaccion: id },
-      order: { id: 'ASC' },
+      order: { id: "ASC" },
     });
 
     return {
@@ -1077,7 +1223,7 @@ export class TransaccionesService {
       detallesPrecargados ??
       (await this.detalleTransaccionesRepository.find({
         where: { id_transaccion: In(transaccionIds) },
-        order: { id: 'ASC' },
+        order: { id: "ASC" },
       }));
 
     const metodoIds = this.uniqueNumbers([
@@ -1095,13 +1241,6 @@ export class TransaccionesService {
         .map((transaccion) => transaccion.id_subcategoria)
         .filter((value): value is number => value !== null),
     );
-    const estadoIds = this.uniqueNumbers([
-      ...transacciones.map((transaccion) => transaccion.id_estado),
-      ...transacciones
-        .map((transaccion) => transaccion.id_estado_registro)
-        .filter((value): value is number => value !== null),
-      ...detalles.map((detalle) => detalle.id_estado),
-    ]);
     const participanteIds = this.uniqueNumbers([
       ...detalles.map((detalle) => detalle.id_participante),
     ]);
@@ -1115,7 +1254,9 @@ export class TransaccionesService {
       participantes,
     ] = await Promise.all([
       metodoIds.length > 0
-        ? this.formasPagoRepository.find({ where: { id_metodo: In(metodoIds) } })
+        ? this.formasPagoRepository.find({
+            where: { id_metodo: In(metodoIds) },
+          })
         : Promise.resolve([]),
       tipoIds.length > 0
         ? this.tiposTransaccionRepository.find({
@@ -1123,7 +1264,9 @@ export class TransaccionesService {
           })
         : Promise.resolve([]),
       categoriaIds.length > 0
-        ? this.categoriasRepository.find({ where: { id_categoria: In(categoriaIds) } })
+        ? this.categoriasRepository.find({
+            where: { id_categoria: In(categoriaIds) },
+          })
         : Promise.resolve([]),
       subcategoriaIds.length > 0
         ? this.subcategoriasRepository.find({
@@ -1132,8 +1275,8 @@ export class TransaccionesService {
         : Promise.resolve([]),
       this.estadosTransaccionRepository.find({
         where: [
-          ...(estadoIds.length > 0 ? [{ id_estado: In(estadoIds) }] : []),
-          { flag: 'R', estado: 'ACTIVO' },
+          { flag: "T", estado: "ACTIVO" },
+          { flag: "R", estado: "ACTIVO" },
         ],
       }),
       participanteIds.length > 0
@@ -1143,7 +1286,9 @@ export class TransaccionesService {
         : Promise.resolve([]),
     ]);
 
-    const formasPagoMap = new Map(formasPago.map((forma) => [forma.id_metodo, forma]));
+    const formasPagoMap = new Map(
+      formasPago.map((forma) => [forma.id_metodo, forma]),
+    );
     const tiposTransaccionMap = new Map(
       tiposTransaccion.map((tipo) => [tipo.id_tipo, tipo]),
     );
@@ -1151,19 +1296,54 @@ export class TransaccionesService {
       categorias.map((categoria) => [categoria.id_categoria, categoria]),
     );
     const subcategoriasMap = new Map(
-      subcategorias.map((subcategoria) => [subcategoria.id_subcategoria, subcategoria]),
+      subcategorias.map((subcategoria) => [
+        subcategoria.id_subcategoria,
+        subcategoria,
+      ]),
     );
-    const estadosMap = new Map(estados.map((estado) => [estado.id_estado, estado]));
+    const estadosMap = new Map(
+      estados.map((estado) => [estado.id_estado, estado]),
+    );
     const participantesMap = new Map(
-      participantes.map((participante) => [participante.id_participante, participante]),
+      participantes.map((participante) => [
+        participante.id_participante,
+        participante,
+      ]),
     );
     const estadoRegistroPendiente =
       estados.find(
-        (estado) => estado.flag === 'R' && estado.estado === 'ACTIVO' && estado.nombre_estado === 'PENDIENTE',
+        (estado) =>
+          estado.flag === "R" &&
+          estado.estado === "ACTIVO" &&
+          estado.nombre_estado === "PENDIENTE",
       ) ?? null;
     const estadoRegistroCompletado =
       estados.find(
-        (estado) => estado.flag === 'R' && estado.estado === 'ACTIVO' && estado.nombre_estado === 'COMPLETADO',
+        (estado) =>
+          estado.flag === "R" &&
+          estado.estado === "ACTIVO" &&
+          estado.nombre_estado === "COMPLETADO",
+      ) ?? null;
+    const estadoPendiente =
+      estados.find(
+        (estado) =>
+          estado.flag === "T" &&
+          estado.estado === "ACTIVO" &&
+          estado.nombre_estado === "PENDIENTE",
+      ) ?? null;
+    const estadoPagoParcial =
+      estados.find(
+        (estado) =>
+          estado.flag === "T" &&
+          estado.estado === "ACTIVO" &&
+          estado.nombre_estado === "PAGO PARCIAL",
+      ) ?? null;
+    const estadoPagado =
+      estados.find(
+        (estado) =>
+          estado.flag === "T" &&
+          estado.estado === "ACTIVO" &&
+          estado.nombre_estado === "PAGADO",
       ) ?? null;
 
     return transacciones.map((transaccion) => {
@@ -1181,30 +1361,34 @@ export class TransaccionesService {
           (detalle) =>
             detalle.id_tipo_transaccion === DETALLE_TIPO_TRANSACCION_TITULAR_ID,
         )?.id_participante ?? null;
-      const detallesTransaccionOrdenados = [...detallesTransaccionCompletos].sort((left, right) => {
-          const leftTitular =
-            titularParticipanteId !== null && left.id_participante === titularParticipanteId
-              ? 1
-              : 0;
-          const rightTitular =
-            titularParticipanteId !== null && right.id_participante === titularParticipanteId
-              ? 1
-              : 0;
+      const detallesTransaccionOrdenados = [
+        ...detallesTransaccionCompletos,
+      ].sort((left, right) => {
+        const leftTitular =
+          titularParticipanteId !== null &&
+          left.id_participante === titularParticipanteId
+            ? 1
+            : 0;
+        const rightTitular =
+          titularParticipanteId !== null &&
+          right.id_participante === titularParticipanteId
+            ? 1
+            : 0;
 
-          if (leftTitular !== rightTitular) {
-            return rightTitular - leftTitular;
-          }
+        if (leftTitular !== rightTitular) {
+          return rightTitular - leftTitular;
+        }
 
-          if (left.id_participante !== right.id_participante) {
-            return left.id_participante - right.id_participante;
-          }
+        if (left.id_participante !== right.id_participante) {
+          return left.id_participante - right.id_participante;
+        }
 
-          if (left.numero_cuota !== right.numero_cuota) {
-            return left.numero_cuota - right.numero_cuota;
-          }
+        if (left.numero_cuota !== right.numero_cuota) {
+          return left.numero_cuota - right.numero_cuota;
+        }
 
-          return left.id - right.id;
-        });
+        return left.id - right.id;
+      });
       const detallesTransaccion = isOwner
         ? detallesTransaccionOrdenados
         : detallesTransaccionOrdenados.filter(
@@ -1212,7 +1396,8 @@ export class TransaccionesService {
           );
 
       const participantesDetalle = detallesTransaccion.map((detalle) => {
-        const participante = participantesMap.get(detalle.id_participante) ?? null;
+        const participante =
+          participantesMap.get(detalle.id_participante) ?? null;
         const estado = estadosMap.get(detalle.id_estado) ?? null;
         const formaPago = formasPagoMap.get(detalle.id_metodo_pago) ?? null;
         const montoDetalle = Number(detalle.monto);
@@ -1225,8 +1410,7 @@ export class TransaccionesService {
           ? Number(detalle.interes_pendiente ?? 0)
           : 0;
         const saldoPendiente = this.centsToAmount(
-          Math.max(0, this.toCents(montoDetalle) - this.toCents(montoPagadoDetalle)) +
-            this.toCents(interesPendienteDetalle),
+          this.getSaldoPendienteCentavos(detalle),
         );
 
         return {
@@ -1241,7 +1425,9 @@ export class TransaccionesService {
           saldo_pendiente: saldoPendiente,
           porcentaje:
             Number(transaccion.monto) > 0
-              ? Number(((montoDetalle / Number(transaccion.monto)) * 100).toFixed(2))
+              ? Number(
+                  ((montoDetalle / Number(transaccion.monto)) * 100).toFixed(2),
+                )
               : 0,
           fecha_pago: detalle.fecha_pago,
           fecha_programada: detalle.fecha_programada,
@@ -1267,19 +1453,36 @@ export class TransaccionesService {
         transaccion.id_subcategoria !== null
           ? (subcategoriasMap.get(transaccion.id_subcategoria) ?? null)
           : null;
-      const estado = estadosMap.get(transaccion.id_estado) ?? null;
-      const estadoRegistroId = this.resolveEstadoRegistroDesdeDetalles(
-        Number(transaccion.monto),
-        detallesTransaccionCompletos,
-        estadoRegistroPendiente?.id_estado ?? null,
-        estadoRegistroCompletado?.id_estado ?? null,
-        transaccion.id_estado_registro,
-      );
+      const estadoTransaccionId = this.isTransaccionAnulada(transaccion)
+        ? transaccion.id_estado
+        : estadoPendiente !== null &&
+            estadoPagoParcial !== null &&
+            estadoPagado !== null
+          ? this.resolveEstadoTransaccionDesdeDetalles(
+              transaccion.id_tipo_transaccion,
+              detallesTransaccionCompletos,
+              estadoPendiente.id_estado,
+              estadoPagoParcial.id_estado,
+              estadoPagado.id_estado,
+            )
+          : transaccion.id_estado;
+      const estado = estadosMap.get(estadoTransaccionId) ?? null;
+      const estadoRegistroId = this.isRegistroAnulado(transaccion)
+        ? transaccion.id_estado_registro
+        : this.resolveEstadoRegistroDesdeDetalles(
+            Number(transaccion.monto),
+            detallesTransaccionCompletos,
+            estadoRegistroPendiente?.id_estado ?? null,
+            estadoRegistroCompletado?.id_estado ?? null,
+            transaccion.id_estado_registro,
+          );
       const estadoRegistro =
-        estadoRegistroId !== null ? (estadosMap.get(estadoRegistroId) ?? null) : null;
+        estadoRegistroId !== null
+          ? (estadosMap.get(estadoRegistroId) ?? null)
+          : null;
       const titular =
-        participantesMap.get(titularParticipanteId ?? -1)?.nombre_participante ??
-        null;
+        participantesMap.get(titularParticipanteId ?? -1)
+          ?.nombre_participante ?? null;
       const cantidadParticipantesUnicos = new Set(
         participantesDetalle.map((detalle) => detalle.id_participante),
       ).size;
@@ -1297,7 +1500,8 @@ export class TransaccionesService {
       );
       const interesesVisibles = this.centsToAmount(
         detallesTransaccionAccesibles.reduce((sum, detalle) => {
-          const formaPagoDetalle = formasPagoMap.get(detalle.id_metodo_pago) ?? null;
+          const formaPagoDetalle =
+            formasPagoMap.get(detalle.id_metodo_pago) ?? null;
           if (formaPagoDetalle?.calcula_interes !== true) {
             return sum;
           }
@@ -1332,7 +1536,7 @@ export class TransaccionesService {
         nombre_categoria: categoria?.nombre_categoria ?? null,
         id_subcategoria: transaccion.id_subcategoria,
         nombre_subcategoria: subcategoria?.nombre_subcategoria ?? null,
-        id_estado: transaccion.id_estado,
+        id_estado: estadoTransaccionId,
         nombre_estado: estado?.nombre_estado ?? null,
         id_estado_registro: estadoRegistroId,
         nombre_estado_registro: estadoRegistro?.nombre_estado ?? null,
@@ -1354,13 +1558,13 @@ export class TransaccionesService {
   ): void {
     if (!pagoCompartido && participantesDetalle.length > 0) {
       throw new BadRequestException(
-        'No debes enviar participantes cuando la transaccion no es compartida',
+        "No debes enviar participantes cuando la transaccion no es compartida",
       );
     }
 
     if (pagoCompartido && participantesDetalle.length === 0) {
       throw new BadRequestException(
-        'Debes agregar al menos un participante cuando el pago es compartido',
+        "Debes agregar al menos un participante cuando el pago es compartido",
       );
     }
 
@@ -1368,18 +1572,20 @@ export class TransaccionesService {
       return;
     }
 
-    const participanteIds = participantesDetalle.map((detalle) => detalle.id_participante);
+    const participanteIds = participantesDetalle.map(
+      (detalle) => detalle.id_participante,
+    );
     const participantesUnicos = new Set(participanteIds);
 
     if (participantesUnicos.size !== participanteIds.length) {
       throw new BadRequestException(
-        'No puedes repetir participantes dentro de la misma transaccion compartida',
+        "No puedes repetir participantes dentro de la misma transaccion compartida",
       );
     }
 
     if (participantesDetalle.some((detalle) => detalle.cantidad_cuotas < 1)) {
       throw new BadRequestException(
-        'Cada participante debe tener al menos una cuota configurada',
+        "Cada participante debe tener al menos una cuota configurada",
       );
     }
 
@@ -1391,7 +1597,7 @@ export class TransaccionesService {
 
     if (montoParticipantesCentavos > montoTotalCentavos) {
       throw new BadRequestException(
-        'La suma de los montos de participantes no puede ser mayor al monto total de la transaccion',
+        "La suma de los montos de participantes no puede ser mayor al monto total de la transaccion",
       );
     }
   }
@@ -1402,7 +1608,9 @@ export class TransaccionesService {
     const pagos = applyPagosDto.pagos ?? [];
 
     if (pagos.length === 0) {
-      throw new BadRequestException('Debes enviar al menos un pago para aplicar');
+      throw new BadRequestException(
+        "Debes enviar al menos un pago para aplicar",
+      );
     }
 
     const detalleIds = pagos.map((pago) => pago.id_detalle);
@@ -1410,7 +1618,7 @@ export class TransaccionesService {
 
     if (detalleIdsUnicos.size !== detalleIds.length) {
       throw new BadRequestException(
-        'No puedes repetir el mismo detalle dentro de una sola aplicacion de pagos',
+        "No puedes repetir el mismo detalle dentro de una sola aplicacion de pagos",
       );
     }
 
@@ -1420,7 +1628,7 @@ export class TransaccionesService {
 
     if (cuotaIdsUnicos.size !== cuotaIds.length) {
       throw new BadRequestException(
-        'No puedes repetir la misma cuota dentro de una sola redistribucion',
+        "No puedes repetir la misma cuota dentro de una sola redistribucion",
       );
     }
   }
@@ -1460,8 +1668,12 @@ export class TransaccionesService {
       const detallesParticipante = Array.from(detallesMap.values())
         .filter((detalle) => detalle.id_participante === idParticipante)
         .sort((left, right) => left.numero_cuota - right.numero_cuota);
-      const detalleIds = detallesParticipante.map((detalle) => detalle.id).sort((a, b) => a - b);
-      const updateIds = updates.map((update) => update.id_detalle).sort((a, b) => a - b);
+      const detalleIds = detallesParticipante
+        .map((detalle) => detalle.id)
+        .sort((a, b) => a - b);
+      const updateIds = updates
+        .map((update) => update.id_detalle)
+        .sort((a, b) => a - b);
 
       if (
         detalleIds.length !== updateIds.length ||
@@ -1487,11 +1699,15 @@ export class TransaccionesService {
         );
       }
 
-      const updateMap = new Map(updates.map((update) => [update.id_detalle, update]));
+      const updateMap = new Map(
+        updates.map((update) => [update.id_detalle, update]),
+      );
 
       for (const detalle of detallesParticipante) {
         const update = updateMap.get(detalle.id)!;
-        const montoPagadoCentavos = this.toCents(Number(detalle.monto_pagado ?? 0));
+        const montoPagadoCentavos = this.toCents(
+          Number(detalle.monto_pagado ?? 0),
+        );
         const nuevoMontoCentavos = this.toCents(update.monto);
 
         if (nuevoMontoCentavos < montoPagadoCentavos) {
@@ -1525,7 +1741,7 @@ export class TransaccionesService {
       )
     ) {
       throw new BadRequestException(
-        'El titular no debe repetirse dentro de los participantes adicionales',
+        "El titular no debe repetirse dentro de los participantes adicionales",
       );
     }
   }
@@ -1534,7 +1750,9 @@ export class TransaccionesService {
     participantesDetalle: ResolvedDetalleInput[],
     idUsuario: number,
   ): Promise<void> {
-    const participantesIds = participantesDetalle.map((detalle) => detalle.id_participante);
+    const participantesIds = participantesDetalle.map(
+      (detalle) => detalle.id_participante,
+    );
     const visibleUserIds = await this.getVisibleUserIds(idUsuario);
     const participantes = await this.participantesRepository.find({
       where: {
@@ -1545,7 +1763,7 @@ export class TransaccionesService {
 
     if (participantes.length !== participantesIds.length) {
       throw new NotFoundException(
-        'Uno o mas participantes no existen o no pertenecen al usuario logueado',
+        "Uno o mas participantes no existen o no pertenecen al usuario logueado",
       );
     }
 
@@ -1557,7 +1775,7 @@ export class TransaccionesService {
       )
     ) {
       throw new BadRequestException(
-        'El titular no debe repetirse dentro de los participantes adicionales',
+        "El titular no debe repetirse dentro de los participantes adicionales",
       );
     }
   }
@@ -1576,13 +1794,16 @@ export class TransaccionesService {
 
     if (montoTitularCentavos < 0) {
       throw new BadRequestException(
-        'El monto total de la transaccion no queda cubierto correctamente por el titular y los participantes',
+        "El monto total de la transaccion no queda cubierto correctamente por el titular y los participantes",
       );
     }
 
-    if (montoParticipantesCentavos + montoTitularCentavos !== montoTotalCentavos) {
+    if (
+      montoParticipantesCentavos + montoTitularCentavos !==
+      montoTotalCentavos
+    ) {
       throw new BadRequestException(
-        'El monto total de la transaccion debe quedar cubierto completamente por el titular o por los participantes del pago compartido',
+        "El monto total de la transaccion debe quedar cubierto completamente por el titular o por los participantes del pago compartido",
       );
     }
   }
@@ -1593,8 +1814,12 @@ export class TransaccionesService {
     estadoPagoParcialId: number,
     estadoPagadoId: number,
   ): number {
-    const hayPendientes = detalles.some((detalle) => this.getSaldoPendienteCentavos(detalle) > 0);
-    const hayPagados = detalles.some((detalle) => this.getMontoPagadoTotalCentavos(detalle) > 0);
+    const hayPendientes = detalles.some(
+      (detalle) => this.getSaldoPendienteCentavos(detalle) > 0,
+    );
+    const hayPagados = detalles.some(
+      (detalle) => this.getMontoPagadoTotalCentavos(detalle) > 0,
+    );
 
     if (hayPendientes && hayPagados) {
       return estadoPagoParcialId;
@@ -1605,6 +1830,90 @@ export class TransaccionesService {
     }
 
     return estadoPendienteId;
+  }
+
+  private resolveEstadoIngresoTransaccion(
+    detalles: Array<
+      Pick<
+        DetalleTransaccion,
+        | "id_estado"
+        | "monto"
+        | "monto_pagado"
+        | "interes_pagado"
+        | "interes_pendiente"
+        | "fecha_programada"
+      >
+    >,
+    estadoPendienteId: number,
+    estadoPagoParcialId: number,
+    estadoPagadoId: number,
+  ): number {
+    const detallesActivos = detalles.filter(
+      (detalle) => !this.isDetalleAnulado(detalle),
+    );
+
+    if (detallesActivos.length === 0) {
+      return estadoPendienteId;
+    }
+
+    if (
+      detallesActivos.every(
+        (detalle) => this.getSaldoPendienteCentavos(detalle) === 0,
+      )
+    ) {
+      return estadoPagadoId;
+    }
+
+    const today = this.todayAsLocalIsoDate();
+    const hayFechaProgramadaVencida = detallesActivos.some((detalle) => {
+      const fechaProgramada = this.normalizeOptionalIsoDate(
+        detalle.fecha_programada,
+      );
+      return fechaProgramada !== null && fechaProgramada < today;
+    });
+    const hayPagosAplicados = detallesActivos.some(
+      (detalle) => this.getMontoPagadoTotalCentavos(detalle) > 0,
+    );
+
+    if (hayFechaProgramadaVencida || hayPagosAplicados) {
+      return estadoPagoParcialId;
+    }
+
+    return estadoPendienteId;
+  }
+
+  private resolveEstadoTransaccionDesdeDetalles(
+    idTipoTransaccion: number,
+    detalles: Array<
+      Pick<
+        DetalleTransaccion,
+        | "id_estado"
+        | "monto"
+        | "monto_pagado"
+        | "interes_pagado"
+        | "interes_pendiente"
+        | "fecha_programada"
+      >
+    >,
+    estadoPendienteId: number,
+    estadoPagoParcialId: number,
+    estadoPagadoId: number,
+  ): number {
+    if (idTipoTransaccion === 2) {
+      return this.resolveEstadoIngresoTransaccion(
+        detalles,
+        estadoPendienteId,
+        estadoPagoParcialId,
+        estadoPagadoId,
+      );
+    }
+
+    return this.resolveEstadoPagoTransaccion(
+      detalles as DetalleTransaccion[],
+      estadoPendienteId,
+      estadoPagoParcialId,
+      estadoPagadoId,
+    );
   }
 
   private resolveEstadoRegistroDesdeIngreso(
@@ -1663,8 +1972,8 @@ export class TransaccionesService {
   private resolveEstadoRegistroDesdeDetalles(
     montoTransaccion: number,
     detalles: Array<
-      Pick<DetalleTransaccion, 'monto' | 'monto_pagado'> &
-        Partial<Pick<DetalleTransaccion, 'id_estado' | 'interes_pendiente'>>
+      Pick<DetalleTransaccion, "monto" | "monto_pagado"> &
+        Partial<Pick<DetalleTransaccion, "id_estado" | "interes_pendiente">>
     >,
     estadoRegistroPendienteId: number | null,
     estadoRegistroCompletadoId: number | null,
@@ -1690,25 +1999,23 @@ export class TransaccionesService {
     idTipoTransaccion: number,
     detalle: Pick<
       DetalleTransaccion,
-      'monto' | 'monto_pagado' | 'interes_pagado' | 'interes_pendiente'
+      "monto" | "monto_pagado" | "interes_pagado" | "interes_pendiente"
     >,
     estadoPendienteId: number,
     estadoPagoParcialId: number,
     estadoPagadoId: number,
   ): number {
-    if (idTipoTransaccion === 2) {
-      return estadoPagadoId;
-    }
-
     const principalPendienteCentavos = Math.max(
       0,
-      this.toCents(Number(detalle.monto)) - this.toCents(Number(detalle.monto_pagado ?? 0)),
+      this.toCents(Number(detalle.monto)) -
+        this.toCents(Number(detalle.monto_pagado ?? 0)),
     );
     const interesPendienteCentavos = Math.max(
       0,
       this.toCents(Number(detalle.interes_pendiente ?? 0)),
     );
-    const saldoPendienteCentavos = principalPendienteCentavos + interesPendienteCentavos;
+    const saldoPendienteCentavos =
+      principalPendienteCentavos + interesPendienteCentavos;
 
     if (saldoPendienteCentavos === 0) {
       return estadoPagadoId;
@@ -1717,31 +2024,6 @@ export class TransaccionesService {
     return this.getMontoPagadoTotalCentavos(detalle) > 0
       ? estadoPagoParcialId
       : estadoPendienteId;
-  }
-
-  private resolveReactivatedTransaccionEstado(
-    idTipoTransaccion: number,
-    detalles: DetalleTransaccion[],
-    estadoPendienteId: number,
-    estadoPagoParcialId: number,
-    estadoPagadoId: number,
-  ): number {
-    if (idTipoTransaccion === 2) {
-      return estadoPagadoId;
-    }
-
-    const detallesActivos = detalles.filter((detalle) => !this.isDetalleAnulado(detalle));
-
-    if (detallesActivos.length === 0) {
-      return estadoPendienteId;
-    }
-
-    return this.resolveEstadoPagoTransaccion(
-      detallesActivos,
-      estadoPendienteId,
-      estadoPagoParcialId,
-      estadoPagadoId,
-    );
   }
 
   private async findVisibleFormaPago(
@@ -1850,14 +2132,14 @@ export class TransaccionesService {
 
     if (subcategoriasActivas > 0) {
       throw new BadRequestException(
-        'La subcategoria es obligatoria cuando la categoria seleccionada tiene subcategorias activas',
+        "La subcategoria es obligatoria cuando la categoria seleccionada tiene subcategorias activas",
       );
     }
   }
 
   private async findEstado(idEstado: number): Promise<EstadoTransaccion> {
     const estado = await this.estadosTransaccionRepository.findOne({
-      where: { id_estado: idEstado, estado: 'ACTIVO', flag: 'T' },
+      where: { id_estado: idEstado, estado: "ACTIVO", flag: "T" },
     });
 
     if (!estado) {
@@ -1876,7 +2158,7 @@ export class TransaccionesService {
     const estado = await this.estadosTransaccionRepository.findOne({
       where: {
         flag,
-        estado: 'ACTIVO',
+        estado: "ACTIVO",
         nombre_estado: nombreEstado,
       },
     });
@@ -1898,7 +2180,7 @@ export class TransaccionesService {
       where: {
         id_estado: idEstado,
         flag,
-        estado: 'ACTIVO',
+        estado: "ACTIVO",
       },
     });
 
@@ -1911,7 +2193,9 @@ export class TransaccionesService {
     return estado;
   }
 
-  private async ensureTitularParticipante(idUsuario: number): Promise<Participante> {
+  private async ensureTitularParticipante(
+    idUsuario: number,
+  ): Promise<Participante> {
     const usuario = await this.usuariosRepository.findOne({
       where: { id_usuario: idUsuario },
     });
@@ -1923,28 +2207,30 @@ export class TransaccionesService {
     const usernameTitular = usuario.username.trim();
     const nombreCompletoTitular = usuario.nombre_completo?.trim() || null;
     const participanteExistente = await this.participantesRepository
-      .createQueryBuilder('participante')
-      .where('COALESCE(participante.estado, :estadoActivo) = :estadoActivo', {
-        estadoActivo: 'ACTIVO',
+      .createQueryBuilder("participante")
+      .where("COALESCE(participante.estado, :estadoActivo) = :estadoActivo", {
+        estadoActivo: "ACTIVO",
       })
       .andWhere(
         new Brackets((queryBuilder) => {
-          queryBuilder.where('participante.id_usuario_titular = :idUsuario', { idUsuario });
+          queryBuilder.where("participante.id_usuario_titular = :idUsuario", {
+            idUsuario,
+          });
 
           queryBuilder.orWhere(
             new Brackets((ownedQueryBuilder) => {
               ownedQueryBuilder
-                .where('participante.id_usuario = :idUsuario', { idUsuario })
+                .where("participante.id_usuario = :idUsuario", { idUsuario })
                 .andWhere(
                   new Brackets((matchQueryBuilder) => {
                     matchQueryBuilder.where(
-                      'LOWER(participante.nombre_participante) = LOWER(:usernameTitular)',
+                      "LOWER(participante.nombre_participante) = LOWER(:usernameTitular)",
                       { usernameTitular },
                     );
 
                     if (nombreCompletoTitular) {
                       matchQueryBuilder.orWhere(
-                        'LOWER(participante.nombre_participante) = LOWER(:nombreCompletoTitular)',
+                        "LOWER(participante.nombre_participante) = LOWER(:nombreCompletoTitular)",
                         {
                           nombreCompletoTitular,
                         },
@@ -1960,12 +2246,12 @@ export class TransaccionesService {
         `CASE
           WHEN participante.id_usuario_titular = :idUsuario THEN 0
           WHEN LOWER(participante.nombre_participante) = LOWER(:usernameTitular) THEN 1
-          ${nombreCompletoTitular ? 'WHEN LOWER(participante.nombre_participante) = LOWER(:nombreCompletoTitular) THEN 2' : ''}
+          ${nombreCompletoTitular ? "WHEN LOWER(participante.nombre_participante) = LOWER(:nombreCompletoTitular) THEN 2" : ""}
           ELSE 3
         END`,
-        'ASC',
+        "ASC",
       )
-      .addOrderBy('participante.id_participante', 'ASC')
+      .addOrderBy("participante.id_participante", "ASC")
       .setParameters({
         idUsuario,
         usernameTitular,
@@ -1983,8 +2269,8 @@ export class TransaccionesService {
       nombre_participante: usernameTitular,
       correo_electronico: usernameTitular.toLowerCase(),
       celular: null,
-      porcentaje_participacion: '100',
-      estado: 'ACTIVO',
+      porcentaje_participacion: "100",
+      estado: "ACTIVO",
     });
 
     return this.participantesRepository.save(nuevoParticipante);
@@ -2029,9 +2315,12 @@ export class TransaccionesService {
     fechaProgramada: string | null,
     cuotasSinIntereses: boolean,
   ): string | null {
-    const fechaProgramadaNormalizada = this.normalizeOptionalIsoDate(fechaProgramada);
-    const fechaInicioInteresNormalizada = this.normalizeOptionalIsoDate(fechaInicioInteres);
-    const fechaUltimoCalculoNormalizada = this.normalizeOptionalIsoDate(fechaUltimoCalculo);
+    const fechaProgramadaNormalizada =
+      this.normalizeOptionalIsoDate(fechaProgramada);
+    const fechaInicioInteresNormalizada =
+      this.normalizeOptionalIsoDate(fechaInicioInteres);
+    const fechaUltimoCalculoNormalizada =
+      this.normalizeOptionalIsoDate(fechaUltimoCalculo);
 
     if (cuotasSinIntereses) {
       return (
@@ -2104,14 +2393,19 @@ export class TransaccionesService {
     );
   }
 
-  private distributeMontoEnCuotas(montoTotal: number, totalCuotas: number): number[] {
+  private distributeMontoEnCuotas(
+    montoTotal: number,
+    totalCuotas: number,
+  ): number[] {
     const cuotas = Math.max(1, totalCuotas);
     const montoTotalCentavos = this.toCents(montoTotal);
     const montoBaseCentavos = Math.floor(montoTotalCentavos / cuotas);
     const sobranteCentavos = montoTotalCentavos % cuotas;
 
     return Array.from({ length: cuotas }, (_, index) =>
-      this.centsToAmount(montoBaseCentavos + (index < sobranteCentavos ? 1 : 0)),
+      this.centsToAmount(
+        montoBaseCentavos + (index < sobranteCentavos ? 1 : 0),
+      ),
     );
   }
 
@@ -2149,7 +2443,8 @@ export class TransaccionesService {
       const interesesDetalleCentavos =
         index < detallesPendientes.length - 1
           ? Math.floor(
-              (interesesCentavos * saldoPendienteCentavos) / totalPendienteCentavos,
+              (interesesCentavos * saldoPendienteCentavos) /
+                totalPendienteCentavos,
             )
           : interesesCentavos - interesesAsignadosCentavos;
 
@@ -2181,7 +2476,9 @@ export class TransaccionesService {
         existente.cantidad_cuotas += 1;
         existente.cuotas.push({
           monto: Number(detalle.monto),
-          fecha_programada: this.normalizeOptionalIsoDate(detalle.fecha_programada),
+          fecha_programada: this.normalizeOptionalIsoDate(
+            detalle.fecha_programada,
+          ),
         });
         continue;
       }
@@ -2193,7 +2490,9 @@ export class TransaccionesService {
         cuotas: [
           {
             monto: Number(detalle.monto),
-            fecha_programada: this.normalizeOptionalIsoDate(detalle.fecha_programada),
+            fecha_programada: this.normalizeOptionalIsoDate(
+              detalle.fecha_programada,
+            ),
           },
         ],
       });
@@ -2222,7 +2521,9 @@ export class TransaccionesService {
         .sort((left, right) => left.numero_cuota - right.numero_cuota)
         .map((detalle) => ({
           monto: Number(detalle.monto),
-          fecha_programada: this.normalizeOptionalIsoDate(detalle.fecha_programada),
+          fecha_programada: this.normalizeOptionalIsoDate(
+            detalle.fecha_programada,
+          ),
         })),
     };
   }
@@ -2246,21 +2547,23 @@ export class TransaccionesService {
       cuotasExistentes &&
       cuotasExistentes.length > 0 &&
       cuotasExistentes.length === cantidadNormalizada &&
-      cuotasExistentes.reduce((sum, cuota) => sum + this.toCents(cuota.monto), 0) ===
-        this.toCents(montoTotal)
+      cuotasExistentes.reduce(
+        (sum, cuota) => sum + this.toCents(cuota.monto),
+        0,
+      ) === this.toCents(montoTotal)
     ) {
-      return cuotasExistentes.map((cuota) =>
-        ({
-          monto: this.centsToAmount(this.toCents(cuota.monto)),
-          fecha_programada: this.normalizeOptionalIsoDate(cuota.fecha_programada),
-        }),
-      );
+      return cuotasExistentes.map((cuota) => ({
+        monto: this.centsToAmount(this.toCents(cuota.monto)),
+        fecha_programada: this.normalizeOptionalIsoDate(cuota.fecha_programada),
+      }));
     }
 
-    return this.distributeMontoEnCuotas(montoTotal, cantidadNormalizada).map((monto) => ({
-      monto,
-      fecha_programada: null,
-    }));
+    return this.distributeMontoEnCuotas(montoTotal, cantidadNormalizada).map(
+      (monto) => ({
+        monto,
+        fecha_programada: null,
+      }),
+    );
   }
 
   private validateCuotasCubrenMonto(
@@ -2290,7 +2593,7 @@ export class TransaccionesService {
           ? `Las cuotas de ${referencia} no pueden ser negativas`
           : allowZeroAmounts
             ? `Las cuotas de ${referencia} no pueden ser negativas`
-          : `Todas las cuotas de ${referencia} deben ser mayores que cero`,
+            : `Todas las cuotas de ${referencia} deben ser mayores que cero`,
       );
     }
 
@@ -2308,29 +2611,33 @@ export class TransaccionesService {
 
   private hasAppliedPayments(
     detalles: Array<
-      Pick<DetalleTransaccion, 'monto_pagado' | 'interes_pagado' | 'fecha_pago'>
+      Pick<DetalleTransaccion, "monto_pagado" | "interes_pagado" | "fecha_pago">
     >,
   ): boolean {
     return detalles.some((detalle) => this.hasAppliedPaymentOnDetalle(detalle));
   }
 
   private hasAppliedPaymentOnDetalle(
-    detalle: Pick<DetalleTransaccion, 'monto_pagado' | 'interes_pagado' | 'fecha_pago'>,
+    detalle: Pick<
+      DetalleTransaccion,
+      "monto_pagado" | "interes_pagado" | "fecha_pago"
+    >,
   ): boolean {
     return (
-      this.getMontoPagadoTotalCentavos(detalle) > 0 || detalle.fecha_pago !== null
+      this.getMontoPagadoTotalCentavos(detalle) > 0 ||
+      detalle.fecha_pago !== null
     );
   }
 
   private shouldKeepDetalleAnuladoOnReactivation(
     detalle: Pick<
       DetalleTransaccion,
-      | 'monto'
-      | 'monto_pagado'
-      | 'interes_pagado'
-      | 'interes_pendiente'
-      | 'fecha_pago'
-      | 'id_estado'
+      | "monto"
+      | "monto_pagado"
+      | "interes_pagado"
+      | "interes_pendiente"
+      | "fecha_pago"
+      | "id_estado"
     >,
   ): boolean {
     if (!this.isDetalleAnulado(detalle)) {
@@ -2347,9 +2654,21 @@ export class TransaccionesService {
   }
 
   private isDetalleAnulado(
-    detalle: Pick<DetalleTransaccion, 'id_estado'>,
+    detalle: Pick<DetalleTransaccion, "id_estado">,
   ): boolean {
     return detalle.id_estado === ESTADO_TRANSACCION_ANULADA_ID;
+  }
+
+  private isTransaccionAnulada(
+    transaccion: Pick<Transaccion, "id_estado">,
+  ): boolean {
+    return transaccion.id_estado === ESTADO_TRANSACCION_ANULADA_ID;
+  }
+
+  private isRegistroAnulado(
+    transaccion: Pick<Transaccion, "id_estado_registro">,
+  ): boolean {
+    return transaccion.id_estado_registro === ESTADO_REGISTRO_ANULADO_ID;
   }
 
   private validateUpdateWithAppliedPayments(
@@ -2360,13 +2679,16 @@ export class TransaccionesService {
   ): void {
     if (resolvedInput.fecha !== existingTransaccion.fecha) {
       throw new BadRequestException(
-        'No puedes cambiar la fecha de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar la fecha de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
-    if (this.toCents(resolvedInput.monto) !== this.toCents(Number(existingTransaccion.monto))) {
+    if (
+      this.toCents(resolvedInput.monto) !==
+      this.toCents(Number(existingTransaccion.monto))
+    ) {
       throw new BadRequestException(
-        'No puedes cambiar el monto total de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar el monto total de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
@@ -2375,7 +2697,7 @@ export class TransaccionesService {
       this.toCents(Number(existingTransaccion.intereses ?? 0))
     ) {
       throw new BadRequestException(
-        'No puedes cambiar los intereses de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar los intereses de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
@@ -2384,35 +2706,39 @@ export class TransaccionesService {
       (existingTransaccion.cuotas_sin_intereses === true)
     ) {
       throw new BadRequestException(
-        'No puedes cambiar la configuracion de cuotas sin intereses de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar la configuracion de cuotas sin intereses de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
-    if (resolvedInput.id_tipo_transaccion !== existingTransaccion.id_tipo_transaccion) {
+    if (
+      resolvedInput.id_tipo_transaccion !==
+      existingTransaccion.id_tipo_transaccion
+    ) {
       throw new BadRequestException(
-        'No puedes cambiar el tipo de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar el tipo de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
     if (resolvedInput.id_metodo_pago !== existingTransaccion.id_metodo_pago) {
       throw new BadRequestException(
-        'No puedes cambiar la forma de pago de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar la forma de pago de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
     if (resolvedInput.id_estado !== existingTransaccion.id_estado) {
       throw new BadRequestException(
-        'No puedes cambiar el estado de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar el estado de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
     if (resolvedInput.pagocompartido !== existingTransaccion.pagocompartido) {
       throw new BadRequestException(
-        'No puedes cambiar la estructura de participantes de una transaccion que ya tiene cuotas con pagos aplicados',
+        "No puedes cambiar la estructura de participantes de una transaccion que ya tiene cuotas con pagos aplicados",
       );
     }
 
-    const existingByParticipante = this.buildDetalleMapByParticipante(existingDetalles);
+    const existingByParticipante =
+      this.buildDetalleMapByParticipante(existingDetalles);
     const submittedByParticipante = this.buildSubmittedCuotasMap(
       resolvedInput,
       titularParticipanteId,
@@ -2420,11 +2746,14 @@ export class TransaccionesService {
 
     if (existingByParticipante.size !== submittedByParticipante.size) {
       throw new BadRequestException(
-        'No puedes agregar o quitar participantes cuando ya existen cuotas con pagos aplicados',
+        "No puedes agregar o quitar participantes cuando ya existen cuotas con pagos aplicados",
       );
     }
 
-    for (const [idParticipante, detallesParticipante] of existingByParticipante.entries()) {
+    for (const [
+      idParticipante,
+      detallesParticipante,
+    ] of existingByParticipante.entries()) {
       const cuotasEnviadas = submittedByParticipante.get(idParticipante);
 
       if (!cuotasEnviadas) {
@@ -2502,7 +2831,10 @@ export class TransaccionesService {
     titularParticipanteId: number,
   ): Map<number, ResolvedCuotaInput[]> {
     const cuotasPorParticipante = new Map<number, ResolvedCuotaInput[]>();
-    cuotasPorParticipante.set(titularParticipanteId, resolvedInput.cuotas_titular);
+    cuotasPorParticipante.set(
+      titularParticipanteId,
+      resolvedInput.cuotas_titular,
+    );
 
     resolvedInput.participantes_detalle.forEach((detalle) => {
       cuotasPorParticipante.set(detalle.id_participante, detalle.cuotas);
@@ -2531,7 +2863,8 @@ export class TransaccionesService {
         continue;
       }
 
-      const existentes = detallesPorParticipante.get(detalle.id_participante) ?? [];
+      const existentes =
+        detallesPorParticipante.get(detalle.id_participante) ?? [];
       existentes.push(detalle);
       detallesPorParticipante.set(detalle.id_participante, existentes);
     }
@@ -2607,14 +2940,18 @@ export class TransaccionesService {
     resolvedInput: ResolvedTransaccionInput,
     estadoPendienteId: number,
   ): Promise<DetalleTransaccion[]> {
-    const existingByParticipante = this.buildDetalleMapByParticipante(existingDetalles);
+    const existingByParticipante =
+      this.buildDetalleMapByParticipante(existingDetalles);
     const submittedByParticipante = this.buildSubmittedCuotasMap(
       resolvedInput,
       titularParticipanteId,
     );
     const detallesActualizados: DetalleTransaccion[] = [];
 
-    for (const [idParticipante, detallesParticipante] of existingByParticipante.entries()) {
+    for (const [
+      idParticipante,
+      detallesParticipante,
+    ] of existingByParticipante.entries()) {
       const cuotasEnviadas = submittedByParticipante.get(idParticipante) ?? [];
       const plan = this.buildDetalleUpdatePlan(
         detallesParticipante,
@@ -2643,7 +2980,9 @@ export class TransaccionesService {
           );
           detalle.numero_cuota = index + 1;
           detalle.total_cuotas = totalCuotasActivas;
-          detallesActualizados.push(await manager.save(DetalleTransaccion, detalle));
+          detallesActualizados.push(
+            await manager.save(DetalleTransaccion, detalle),
+          );
           continue;
         }
 
@@ -2657,7 +2996,9 @@ export class TransaccionesService {
         );
         detalle.numero_cuota = index + 1;
         detalle.total_cuotas = totalCuotasActivas;
-        detallesActualizados.push(await manager.save(DetalleTransaccion, detalle));
+        detallesActualizados.push(
+          await manager.save(DetalleTransaccion, detalle),
+        );
       }
 
       for (const detalle of plan.removedPendingDetalles) {
@@ -2670,7 +3011,9 @@ export class TransaccionesService {
         detalle.dias_interes = 0;
         detalle.fecha_pago = null;
         detalle.fecha_ultimo_calculo = null;
-        detallesActualizados.push(await manager.save(DetalleTransaccion, detalle));
+        detallesActualizados.push(
+          await manager.save(DetalleTransaccion, detalle),
+        );
       }
 
       for (let index = 0; index < plan.newCuotas.length; index += 1) {
@@ -2688,7 +3031,8 @@ export class TransaccionesService {
           fecha_programada: cuotaEnviada.fecha_programada,
           fecha_inicio_interes: this.resolveFechaInicioInteresRestante(
             detalleBase.fecha_ultimo_calculo,
-            detalleBase.fecha_inicio_interes ?? resolvedInput.fecha_inicio_interes,
+            detalleBase.fecha_inicio_interes ??
+              resolvedInput.fecha_inicio_interes,
             cuotaEnviada.fecha_programada,
             resolvedInput.cuotas_sin_intereses,
           ),
@@ -2708,7 +3052,9 @@ export class TransaccionesService {
           id_estado: estadoPendienteId,
         });
 
-        detallesActualizados.push(await manager.save(DetalleTransaccion, nuevoDetalle));
+        detallesActualizados.push(
+          await manager.save(DetalleTransaccion, nuevoDetalle),
+        );
       }
     }
 
@@ -2726,7 +3072,7 @@ export class TransaccionesService {
   }
 
   private getMontoPagadoTotalCentavos(
-    detalle: Pick<DetalleTransaccion, 'monto_pagado' | 'interes_pagado'>,
+    detalle: Pick<DetalleTransaccion, "monto_pagado" | "interes_pagado">,
   ): number {
     return (
       this.toCents(Number(detalle.monto_pagado ?? 0)) +
@@ -2735,7 +3081,9 @@ export class TransaccionesService {
   }
 
   private getInteresPendienteCentavos(
-    detalle: Partial<Pick<DetalleTransaccion, 'id_estado' | 'interes_pendiente'>>,
+    detalle: Partial<
+      Pick<DetalleTransaccion, "id_estado" | "interes_pendiente">
+    >,
   ): number {
     if (!this.shouldApplyPendingInteres(detalle.id_estado ?? null)) {
       return 0;
@@ -2745,10 +3093,17 @@ export class TransaccionesService {
   }
 
   private usaFechaProgramadaComoInicioInteres(
-    detalle: Pick<DetalleTransaccion, 'fecha_inicio_interes' | 'fecha_programada'>,
+    detalle: Pick<
+      DetalleTransaccion,
+      "fecha_inicio_interes" | "fecha_programada"
+    >,
   ): boolean {
-    const fechaInicioInteres = this.normalizeOptionalIsoDate(detalle.fecha_inicio_interes);
-    const fechaProgramada = this.normalizeOptionalIsoDate(detalle.fecha_programada);
+    const fechaInicioInteres = this.normalizeOptionalIsoDate(
+      detalle.fecha_inicio_interes,
+    );
+    const fechaProgramada = this.normalizeOptionalIsoDate(
+      detalle.fecha_programada,
+    );
 
     return fechaProgramada !== null && fechaInicioInteres === fechaProgramada;
   }
@@ -2769,8 +3124,8 @@ export class TransaccionesService {
   }
 
   private getMontoDistribuidoCentavos(
-    detalle: Pick<DetalleTransaccion, 'monto' | 'monto_pagado'> &
-      Partial<Pick<DetalleTransaccion, 'id_estado' | 'interes_pendiente'>>,
+    detalle: Pick<DetalleTransaccion, "monto" | "monto_pagado"> &
+      Partial<Pick<DetalleTransaccion, "id_estado" | "interes_pendiente">>,
   ): number {
     const montoCentavos = this.toCents(Number(detalle.monto));
     const montoPagadoCentavos = this.toCents(Number(detalle.monto_pagado ?? 0));
@@ -2788,8 +3143,8 @@ export class TransaccionesService {
   }
 
   private getSaldoPendienteCentavos(
-    detalle: Pick<DetalleTransaccion, 'monto' | 'monto_pagado'> &
-      Partial<Pick<DetalleTransaccion, 'id_estado' | 'interes_pendiente'>>,
+    detalle: Pick<DetalleTransaccion, "monto" | "monto_pagado"> &
+      Partial<Pick<DetalleTransaccion, "id_estado" | "interes_pendiente">>,
   ): number {
     if (!this.shouldApplyPendingPrincipal(detalle.id_estado ?? null)) {
       return 0;
@@ -2801,11 +3156,13 @@ export class TransaccionesService {
         this.toCents(Number(detalle.monto_pagado ?? 0)),
     );
 
-    return principalPendienteCentavos + this.getInteresPendienteCentavos(detalle);
+    return (
+      principalPendienteCentavos + this.getInteresPendienteCentavos(detalle)
+    );
   }
 
   private calculateTransaccionSaldoPendiente(
-    detalles: Pick<DetalleTransaccion, 'monto' | 'monto_pagado'>[],
+    detalles: Pick<DetalleTransaccion, "monto" | "monto_pagado">[],
   ): number {
     const saldoDetallesCentavos = detalles.reduce(
       (sum, detalle) => sum + this.getSaldoPendienteCentavos(detalle),
@@ -2828,19 +3185,21 @@ export class TransaccionesService {
   }
 
   private addDaysToIsoDate(value: string, days: number): string {
-    const [year, month, day] = value.split('-').map(Number);
+    const [year, month, day] = value.split("-").map(Number);
     const result = new Date(year, month - 1, day);
     result.setDate(result.getDate() + Math.max(0, days));
 
     const resultYear = result.getFullYear();
-    const resultMonth = String(result.getMonth() + 1).padStart(2, '0');
-    const resultDay = String(result.getDate()).padStart(2, '0');
+    const resultMonth = String(result.getMonth() + 1).padStart(2, "0");
+    const resultDay = String(result.getDate()).padStart(2, "0");
 
     return `${resultYear}-${resultMonth}-${resultDay}`;
   }
 
   private uniqueNumbers(values: number[]): number[] {
-    return Array.from(new Set(values.filter((value) => Number.isInteger(value))));
+    return Array.from(
+      new Set(values.filter((value) => Number.isInteger(value))),
+    );
   }
 
   private todayAsIsoDate(): string {
@@ -2850,8 +3209,8 @@ export class TransaccionesService {
   private todayAsLocalIsoDate(): string {
     const currentDate = new Date();
     const year = currentDate.getFullYear();
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const day = String(currentDate.getDate()).padStart(2, '0');
+    const month = String(currentDate.getMonth() + 1).padStart(2, "0");
+    const day = String(currentDate.getDate()).padStart(2, "0");
 
     return `${year}-${month}-${day}`;
   }
