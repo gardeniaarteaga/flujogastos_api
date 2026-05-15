@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -60,6 +61,8 @@ export class UsuariosService {
 
     try {
       usuario = await this.findActiveByUsername(loginUsuarioDto.username);
+      Logger.debug(`Usuario ${usuario.username} encontrado para login`, 'UsuariosService');
+      
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw new UnauthorizedException('Usuario o contrasena incorrectos');
