@@ -58,11 +58,11 @@ export class UsuariosService {
 
   async login(loginUsuarioDto: LoginUsuarioDto): Promise<UsuarioPublico> {
     let usuario: Usuario;
-
+ Logger.debug(`Intentando iniciar sesión para el usuario: ${loginUsuarioDto.username}`, 'UsuariosService');
     try {
       usuario = await this.findActiveByUsername(loginUsuarioDto.username);
-      Logger.debug(`Usuario ${usuario.username} encontrado para login`, 'UsuariosService');
       
+
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw new UnauthorizedException('Usuario o contrasena incorrectos');
