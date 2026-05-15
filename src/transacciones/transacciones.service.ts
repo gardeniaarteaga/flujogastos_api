@@ -1814,18 +1814,32 @@ export class TransaccionesService {
     estadoPagoParcialId: number,
     estadoPagadoId: number,
   ): number {
-    const hayPendientes = detalles.some(
-      (detalle) => this.getSaldoPendienteCentavos(detalle) > 0,
-    );
-    const hayPagados = detalles.some(
-      (detalle) => this.getMontoPagadoTotalCentavos(detalle) > 0,
+    const detallesActivos = detalles.filter(
+      (detalle) => !this.isDetalleAnulado(detalle),
     );
 
-    if (hayPendientes && hayPagados) {
+    if (detallesActivos.length === 0) {
+      return estadoPendienteId;
+    }
+
+    const hayPendientes = detallesActivos.some(
+      (detalle) => this.getSaldoPendienteCentavos(detalle) > 0,
+    );
+    const hayPagados = detallesActivos.some(
+      (detalle) => this.getMontoPagadoTotalCentavos(detalle) > 0,
+    );
+    const hayPagoParcialMarcado = detallesActivos.some(
+      (detalle) => detalle.id_estado === estadoPagoParcialId,
+    );
+    const todosMarcadosPagado = detallesActivos.every(
+      (detalle) => detalle.id_estado === estadoPagadoId,
+    );
+
+    if (hayPendientes && (hayPagados || hayPagoParcialMarcado)) {
       return estadoPagoParcialId;
     }
 
-    if (hayPagados) {
+    if (hayPagados || todosMarcadosPagado) {
       return estadoPagadoId;
     }
 
