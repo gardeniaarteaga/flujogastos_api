@@ -73,7 +73,7 @@ const shouldUseDatabaseSsl = (configService: ConfigService): boolean => {
         database: getFirstConfigValue(
           configService,
           ['DB_NAME', 'PGDATABASE', 'POSTGRES_DB'],
-          'flujo_gastos',
+          'control_gastos',
         ),
         ssl: shouldUseDatabaseSsl(configService)
           ? { rejectUnauthorized: false }
