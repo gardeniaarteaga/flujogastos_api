@@ -13,6 +13,237 @@ const createRepositoryMock = <T = unknown>(): RepositoryMock<T> => ({
 });
 
 describe("TransaccionesService", () => {
+  it("muestra el estado guardado de la transaccion aunque las cuotas vencidas sigan pendientes", async () => {
+    const transaccionesRepository = createRepositoryMock<Transaccion>();
+    const detalleRepository = createRepositoryMock<DetalleTransaccion>();
+    const formasPagoRepository = createRepositoryMock();
+    const categoriasRepository = createRepositoryMock();
+    const subcategoriasRepository = createRepositoryMock();
+    const participantesRepository = createRepositoryMock();
+    const estadosRepository = createRepositoryMock();
+    const tiposTransaccionRepository = createRepositoryMock();
+    const usuariosRepository = createRepositoryMock();
+
+    formasPagoRepository.find.mockResolvedValue([
+      { id_metodo: 10, nombre_metodo: "Tarjeta", calcula_interes: false },
+    ]);
+    categoriasRepository.find.mockResolvedValue([
+      { id_categoria: 5, nombre_categoria: "Servicios" },
+    ]);
+    tiposTransaccionRepository.find.mockResolvedValue([
+      { id_tipo: 2, nombre: "Ingreso" },
+    ]);
+    participantesRepository.find.mockResolvedValue([
+      {
+        id_participante: 20,
+        nombre_participante: "Titular",
+      },
+    ]);
+    estadosRepository.find.mockResolvedValue([
+      {
+        id_estado: 3,
+        nombre_estado: "PENDIENTE",
+        estado: "ACTIVO",
+        flag: "T",
+      },
+      {
+        id_estado: 4,
+        nombre_estado: "PAGO PARCIAL",
+        estado: "ACTIVO",
+        flag: "T",
+      },
+      {
+        id_estado: 5,
+        nombre_estado: "PAGADO",
+        estado: "ACTIVO",
+        flag: "T",
+      },
+      {
+        id_estado: 6,
+        nombre_estado: "PENDIENTE",
+        estado: "ACTIVO",
+        flag: "R",
+      },
+      {
+        id_estado: 8,
+        nombre_estado: "COMPLETADO",
+        estado: "ACTIVO",
+        flag: "R",
+      },
+    ]);
+
+    const service = new TransaccionesService(
+      {} as never,
+      transaccionesRepository as never,
+      detalleRepository as never,
+      formasPagoRepository as never,
+      categoriasRepository as never,
+      subcategoriasRepository as never,
+      participantesRepository as never,
+      estadosRepository as never,
+      tiposTransaccionRepository as never,
+      usuariosRepository as never,
+      {} as never,
+    );
+
+    const transaccion = {
+      id_transaccion: 1,
+      id_usuario: 1,
+      fecha: "2026-05-01",
+      monto: "100.00",
+      id_tipo_transaccion: 2,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 3,
+      id_estado_registro: 6,
+      descripcion: "Ingreso editado",
+      intereses: "0.00",
+      saldo_pendiente: "100.00",
+      cuotas_sin_intereses: false,
+      fecha_ultimo_pago: null,
+      fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+      pagocompartido: false,
+    } as Transaccion;
+
+    const detalles = [
+      {
+        id: 100,
+        id_usuario: 1,
+        id_transaccion: 1,
+        fecha_pago: null,
+        fecha_programada: "2026-05-02",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 20,
+        id_usuario_relacionado: null,
+        monto: "50.00",
+        monto_pagado: "0.00",
+        numero_cuota: 1,
+        total_cuotas: 2,
+        id_tipo_transaccion: 2,
+        id_metodo_pago: 10,
+        id_estado: 3,
+        fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+      } as DetalleTransaccion,
+      {
+        id: 101,
+        id_usuario: 1,
+        id_transaccion: 1,
+        fecha_pago: null,
+        fecha_programada: "2026-05-03",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 20,
+        id_usuario_relacionado: null,
+        monto: "50.00",
+        monto_pagado: "0.00",
+        numero_cuota: 2,
+        total_cuotas: 2,
+        id_tipo_transaccion: 2,
+        id_metodo_pago: 10,
+        id_estado: 3,
+        fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+      } as DetalleTransaccion,
+    ];
+
+    const [response] = await (
+      service as unknown as {
+        buildDetailedResponses: (
+          transacciones: Transaccion[],
+          idUsuario: number,
+          detallesPrecargados?: DetalleTransaccion[],
+        ) => Promise<Array<Record<string, unknown>>>;
+      }
+    ).buildDetailedResponses([transaccion], 1, detalles);
+
+    expect(response.id_estado).toBe(3);
+    expect(response.nombre_estado).toBe("PENDIENTE");
+    expect(response.participantes_detalle).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 100, id_estado: 3 }),
+        expect.objectContaining({ id: 101, id_estado: 3 }),
+      ]),
+    );
+  });
+
+  it("respeta el id_estado enviado al editar y no lo reemplaza por la forma de pago", async () => {
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+    const transaccionExistente = {
+      id_transaccion: 5,
+      id_usuario: 3,
+      fecha: "2026-05-15",
+      monto: "500.00",
+      id_tipo_transaccion: 1,
+      id_metodo_pago: 3,
+      id_categoria: 10,
+      id_subcategoria: 49,
+      id_estado: 4,
+      id_estado_registro: 5,
+      descripcion: "GRACIELA",
+      intereses: "0.00",
+      saldo_pendiente: "500.00",
+      cuotas_sin_intereses: false,
+      fecha_ultimo_pago: null,
+      fecha_creacion: new Date("2026-05-15T21:49:37.553Z"),
+      pagocompartido: false,
+    } as Transaccion;
+
+    jest
+      .spyOn(serviceInternals, "findVisibleTipoTransaccion")
+      .mockResolvedValue({ id_tipo: 1 });
+    jest.spyOn(serviceInternals, "findVisibleFormaPago").mockResolvedValue({
+      id_metodo: 3,
+      calcula_interes: false,
+      tipo_producto: { pago_inmediato: false },
+    });
+    jest
+      .spyOn(serviceInternals, "findVisibleCategoria")
+      .mockResolvedValue({ id_categoria: 10 });
+    jest
+      .spyOn(serviceInternals, "validateRequiredSubcategoria")
+      .mockResolvedValue(undefined);
+    jest.spyOn(serviceInternals, "findVisibleSubcategoria").mockResolvedValue({
+      id_subcategoria: 49,
+    });
+    jest.spyOn(serviceInternals, "findEstado").mockResolvedValue({
+      id_estado: 1,
+    });
+    const resolveEstadoDesdeFormaPagoSpy = jest
+      .spyOn(serviceInternals, "resolveEstadoTransaccionDesdeFormaPago")
+      .mockResolvedValue(4);
+
+    const resolvedInput = await serviceInternals.resolveTransaccionInput(
+      { id_estado: 1 },
+      3,
+      transaccionExistente,
+    );
+
+    expect(resolvedInput.id_estado).toBe(1);
+    expect(resolveEstadoDesdeFormaPagoSpy).not.toHaveBeenCalled();
+  });
+
   it("mantiene el encabezado y el registro como anulados aunque existan cuotas con saldo pendiente", async () => {
     const transaccionesRepository = createRepositoryMock<Transaccion>();
     const detalleRepository = createRepositoryMock<DetalleTransaccion>();
@@ -157,5 +388,189 @@ describe("TransaccionesService", () => {
         }),
       ]),
     );
+  });
+
+  it("conserva el estado editado en la transaccion al actualizar varias cuotas sin pagos aplicados", async () => {
+    const manager = {
+      save: jest.fn(async (_entity: unknown, value: unknown) => value),
+      delete: jest.fn().mockResolvedValue(undefined),
+    };
+    const dataSource = {
+      transaction: jest.fn(async (callback: (managerArg: typeof manager) => Promise<void>) =>
+        callback(manager),
+      ),
+    };
+    const transaccionesRepository = createRepositoryMock<Transaccion>();
+    const detalleRepository = createRepositoryMock<DetalleTransaccion>();
+    const formasPagoRepository = createRepositoryMock();
+    const categoriasRepository = createRepositoryMock();
+    const subcategoriasRepository = createRepositoryMock();
+    const participantesRepository = createRepositoryMock();
+    const estadosRepository = createRepositoryMock();
+    const tiposTransaccionRepository = createRepositoryMock();
+    const usuariosRepository = createRepositoryMock();
+    const notificacionesService = {
+      syncPagoAsignadoNotificationsSafely: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const service = new TransaccionesService(
+      dataSource as never,
+      transaccionesRepository as never,
+      detalleRepository as never,
+      formasPagoRepository as never,
+      categoriasRepository as never,
+      subcategoriasRepository as never,
+      participantesRepository as never,
+      estadosRepository as never,
+      tiposTransaccionRepository as never,
+      usuariosRepository as never,
+      notificacionesService as never,
+    );
+    const serviceInternals = service as unknown as {
+      findOwnedTransaccion: jest.Mock;
+      resolveTransaccionInput: jest.Mock;
+      findEstadoByFlagAndName: jest.Mock;
+      saveDetallesTransaccion: jest.Mock;
+      findOneDetailed: jest.Mock;
+    };
+
+    const transaccion = {
+      id_transaccion: 1,
+      id_usuario: 1,
+      fecha: "2026-05-01",
+      monto: "100.00",
+      id_tipo_transaccion: 2,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 4,
+      id_estado_registro: 6,
+      descripcion: "Ingreso editado",
+      intereses: "0.00",
+      saldo_pendiente: "100.00",
+      cuotas_sin_intereses: false,
+      fecha_ultimo_pago: null,
+      fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+      pagocompartido: false,
+    } as Transaccion;
+    const detallesExistentes = [
+      {
+        id: 100,
+        id_usuario: 1,
+        id_transaccion: 1,
+        fecha_pago: null,
+        fecha_programada: "2026-05-02",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 20,
+        id_usuario_relacionado: null,
+        monto: "50.00",
+        monto_pagado: "0.00",
+        numero_cuota: 1,
+        total_cuotas: 2,
+        id_tipo_transaccion: 2,
+        id_metodo_pago: 10,
+        id_estado: 4,
+        fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+      } as DetalleTransaccion,
+      {
+        id: 101,
+        id_usuario: 1,
+        id_transaccion: 1,
+        fecha_pago: null,
+        fecha_programada: "2026-05-03",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 20,
+        id_usuario_relacionado: null,
+        monto: "50.00",
+        monto_pagado: "0.00",
+        numero_cuota: 2,
+        total_cuotas: 2,
+        id_tipo_transaccion: 2,
+        id_metodo_pago: 10,
+        id_estado: 4,
+        fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+      } as DetalleTransaccion,
+    ];
+    const detallesEditados = detallesExistentes.map((detalle) => ({
+      ...detalle,
+      id_estado: 3,
+    })) as DetalleTransaccion[];
+    const resolvedInput = {
+      fecha: "2026-05-01",
+      calcula_interes: false,
+      cuotas_sin_intereses: false,
+      fecha_inicio_interes: null,
+      monto: 100,
+      intereses: 0,
+      id_tipo_transaccion: 2,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 3,
+      descripcion: "Ingreso editado",
+      pagocompartido: false,
+      cantidad_cuotas_titular: 2,
+      cuotas_titular: [
+        { monto: 50, fecha_programada: "2026-05-02" },
+        { monto: 50, fecha_programada: "2026-05-03" },
+      ],
+      participantes_detalle: [],
+    };
+
+    jest.spyOn(service as any, "findOwnedTransaccion").mockResolvedValue({
+      transaccion,
+      detalles: detallesExistentes,
+      titularParticipante: { id_participante: 20 },
+    });
+    jest
+      .spyOn(service as any, "resolveTransaccionInput")
+      .mockResolvedValue(resolvedInput);
+    jest
+      .spyOn(service as any, "findEstadoByFlagAndName")
+      .mockImplementation(async (...args: unknown[]) => {
+        const [flag, nombre] = args as [string, string];
+        const estados = new Map([
+          ["T:PENDIENTE", { id_estado: 3 }],
+          ["T:PAGO PARCIAL", { id_estado: 4 }],
+          ["T:PAGADO", { id_estado: 5 }],
+          ["R:PENDIENTE", { id_estado: 6 }],
+          ["R:COMPLETADO", { id_estado: 8 }],
+        ]);
+        return estados.get(`${flag}:${nombre}`) as { id_estado: number };
+      });
+    jest
+      .spyOn(service as any, "saveDetallesTransaccion")
+      .mockResolvedValue(detallesEditados);
+    jest
+      .spyOn(service as any, "findOneDetailed")
+      .mockResolvedValue({
+        id_transaccion: 1,
+        id_estado: 3,
+        participantes_detalle: detallesEditados,
+      });
+
+    await service.update(1, { id_estado: 3 } as never, 1);
+
+    const transaccionGuardadaFinal = manager.save.mock.calls
+      .filter(([entity]) => entity === Transaccion)
+      .at(-1)?.[1] as Transaccion;
+
+    expect(transaccionGuardadaFinal.id_estado).toBe(3);
+    expect(manager.delete).toHaveBeenCalledWith(DetalleTransaccion, {
+      id_transaccion: 1,
+      id_usuario: 1,
+    });
+    expect(serviceInternals.saveDetallesTransaccion).toHaveBeenCalled();
+    expect(detallesEditados.map((detalle) => detalle.id_estado)).toEqual([3, 3]);
   });
 });

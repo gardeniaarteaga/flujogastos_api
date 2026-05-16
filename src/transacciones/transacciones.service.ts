@@ -382,14 +382,7 @@ export class TransaccionesService {
           resolvedInput,
         );
       }
-      visibleTransaccion.transaccion.id_estado =
-        this.resolveEstadoTransaccionDesdeDetalles(
-          resolvedInput.id_tipo_transaccion,
-          detallesGuardados,
-          estadoPendiente.id_estado,
-          estadoPagoParcial.id_estado,
-          estadoPagado.id_estado,
-        );
+      visibleTransaccion.transaccion.id_estado = resolvedInput.id_estado;
       visibleTransaccion.transaccion.saldo_pendiente = this.toNumericString(
         this.calculateTransaccionSaldoPendiente(detallesGuardados),
       );
@@ -922,11 +915,14 @@ export class TransaccionesService {
       );
     }
 
-    resolvedInput.id_estado = await this.resolveEstadoTransaccionDesdeFormaPago(
-      resolvedInput.id_tipo_transaccion,
-      resolvedInput.id_estado,
-      formaPago,
-    );
+    if (dto.id_estado === undefined) {
+      resolvedInput.id_estado =
+        await this.resolveEstadoTransaccionDesdeFormaPago(
+          resolvedInput.id_tipo_transaccion,
+          resolvedInput.id_estado,
+          formaPago,
+        );
+    }
     await this.findEstado(resolvedInput.id_estado);
 
     if (resolvedInput.cantidad_cuotas_titular < 1) {
@@ -1324,28 +1320,6 @@ export class TransaccionesService {
           estado.estado === "ACTIVO" &&
           estado.nombre_estado === "COMPLETADO",
       ) ?? null;
-    const estadoPendiente =
-      estados.find(
-        (estado) =>
-          estado.flag === "T" &&
-          estado.estado === "ACTIVO" &&
-          estado.nombre_estado === "PENDIENTE",
-      ) ?? null;
-    const estadoPagoParcial =
-      estados.find(
-        (estado) =>
-          estado.flag === "T" &&
-          estado.estado === "ACTIVO" &&
-          estado.nombre_estado === "PAGO PARCIAL",
-      ) ?? null;
-    const estadoPagado =
-      estados.find(
-        (estado) =>
-          estado.flag === "T" &&
-          estado.estado === "ACTIVO" &&
-          estado.nombre_estado === "PAGADO",
-      ) ?? null;
-
     return transacciones.map((transaccion) => {
       const isOwner = transaccion.id_usuario === idUsuario;
       const detallesTransaccionCompletos = detalles.filter(
@@ -1453,19 +1427,7 @@ export class TransaccionesService {
         transaccion.id_subcategoria !== null
           ? (subcategoriasMap.get(transaccion.id_subcategoria) ?? null)
           : null;
-      const estadoTransaccionId = this.isTransaccionAnulada(transaccion)
-        ? transaccion.id_estado
-        : estadoPendiente !== null &&
-            estadoPagoParcial !== null &&
-            estadoPagado !== null
-          ? this.resolveEstadoTransaccionDesdeDetalles(
-              transaccion.id_tipo_transaccion,
-              detallesTransaccionCompletos,
-              estadoPendiente.id_estado,
-              estadoPagoParcial.id_estado,
-              estadoPagado.id_estado,
-            )
-          : transaccion.id_estado;
+      const estadoTransaccionId = transaccion.id_estado;
       const estado = estadosMap.get(estadoTransaccionId) ?? null;
       const estadoRegistroId = this.isRegistroAnulado(transaccion)
         ? transaccion.id_estado_registro
