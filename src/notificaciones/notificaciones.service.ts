@@ -622,6 +622,33 @@ export class NotificacionesService implements OnModuleInit {
     `);
 
     await this.dataSource.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'periodicidad'
+            AND column_name = 'descripcion_periodicidad'
+        ) AND NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'periodicidad'
+            AND column_name = 'descripcion'
+        ) THEN
+          ALTER TABLE periodicidad
+          RENAME COLUMN descripcion_periodicidad TO descripcion;
+        END IF;
+      END $$;
+    `);
+
+    await this.dataSource.query(`
+      ALTER TABLE periodicidad
+      ADD COLUMN IF NOT EXISTS descripcion VARCHAR(180)
+    `);
+
+    await this.dataSource.query(`
       ALTER TABLE periodicidad
       ADD COLUMN IF NOT EXISTS codigo VARCHAR(40)
     `);
@@ -644,6 +671,27 @@ export class NotificacionesService implements OnModuleInit {
     await this.dataSource.query(`
       ALTER TABLE periodicidad
       ALTER COLUMN descripcion DROP NOT NULL
+    `);
+
+    await this.dataSource.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'periodicidad'
+            AND column_name = 'descripcion_periodicidad'
+        ) THEN
+          UPDATE periodicidad
+          SET descripcion = COALESCE(descripcion, descripcion_periodicidad)
+          WHERE descripcion IS NULL
+            AND descripcion_periodicidad IS NOT NULL;
+
+          ALTER TABLE periodicidad
+          ALTER COLUMN descripcion_periodicidad DROP NOT NULL;
+        END IF;
+      END $$;
     `);
 
     await this.dataSource.query(`
