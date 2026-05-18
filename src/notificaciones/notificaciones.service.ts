@@ -1,10 +1,11 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 
 import { Participante } from '../participantes/entities/participante.entity';
 import { CreateNotificacionProgramadaDto } from './dto/create-notificacion-programada.dto';
@@ -47,6 +48,9 @@ type NotificacionProgramadaResponse = {
   id_notificacion_programada: number;
   id_usuario: number;
   descripcion: string;
+  prioridad: 'alta' | 'media' | 'baja';
+  fecha_inicio: string;
+  fecha_fin: string;
   dia_pago_programado: number;
   id_periodicidad: number;
   periodicidad_nombre: string;
@@ -79,6 +83,10 @@ type CobroIngresadoNotificationInput = {
     monto: string | number;
   }>;
 };
+
+type PrioridadNotificacion = 'alta' | 'media' | 'baja';
+
+const PRIORIDADES_NOTIFICACION: PrioridadNotificacion[] = ['alta', 'media', 'baja'];
 
 @Injectable()
 export class NotificacionesService implements OnModuleInit {
@@ -137,13 +145,22 @@ export class NotificacionesService implements OnModuleInit {
       order: { id_periodicidad: 'ASC' },
     });
 
-    return items.map((item) => ({
-      id_periodicidad: item.id_periodicidad,
-      nombre_periodicidad: item.nombre_periodicidad,
-      descripcion: item.descripcion ?? null,
-      codigo: item.codigo,
-      estado: item.estado,
-    }));
+    return items
+      .filter(
+        (item) =>
+          item.nombre_periodicidad?.trim().length > 0 &&
+          item.codigo?.trim().length > 0 &&
+          ['mensual', 'fecha-especifica', 'anual'].includes(
+            item.codigo.trim().toLowerCase(),
+          ),
+      )
+      .map((item) => ({
+        id_periodicidad: item.id_periodicidad,
+        nombre_periodicidad: item.nombre_periodicidad,
+        descripcion: item.descripcion ?? null,
+        codigo: item.codigo,
+        estado: item.estado,
+      }));
   }
 
   async findProgramadas(
@@ -173,10 +190,14 @@ export class NotificacionesService implements OnModuleInit {
     const entity = this.notificacionesProgramadasRepository.create({
       id_usuario: idUsuario,
       descripcion: createDto.descripcion.trim(),
+      prioridad: this.normalizePrioridad(createDto.prioridad),
+      fecha_inicio: this.normalizeDateOnly(createDto.fecha_inicio, 'fecha_inicio'),
+      fecha_fin: this.normalizeDateOnly(createDto.fecha_fin, 'fecha_fin'),
       dia_pago_programado: createDto.dia_pago_programado,
       id_periodicidad: periodicidad.id_periodicidad,
       estado: true,
     });
+    this.ensureDateRange(entity.fecha_inicio, entity.fecha_fin);
 
     const saved = await this.notificacionesProgramadasRepository.save(entity);
     saved.periodicidad = periodicidad;
@@ -205,9 +226,26 @@ export class NotificacionesService implements OnModuleInit {
       entity.descripcion = updateDto.descripcion.trim();
     }
 
+    if (updateDto.prioridad !== undefined) {
+      entity.prioridad = this.normalizePrioridad(updateDto.prioridad);
+    }
+
+    if (updateDto.fecha_inicio !== undefined) {
+      entity.fecha_inicio = this.normalizeDateOnly(
+        updateDto.fecha_inicio,
+        'fecha_inicio',
+      );
+    }
+
+    if (updateDto.fecha_fin !== undefined) {
+      entity.fecha_fin = this.normalizeDateOnly(updateDto.fecha_fin, 'fecha_fin');
+    }
+
     if (updateDto.dia_pago_programado !== undefined) {
       entity.dia_pago_programado = updateDto.dia_pago_programado;
     }
+
+    this.ensureDateRange(entity.fecha_inicio, entity.fecha_fin);
 
     const saved = await this.notificacionesProgramadasRepository.save(entity);
 
@@ -533,6 +571,9 @@ export class NotificacionesService implements OnModuleInit {
       id_notificacion_programada: notification.id_notificacion_programada,
       id_usuario: notification.id_usuario,
       descripcion: notification.descripcion,
+      prioridad: notification.prioridad,
+      fecha_inicio: notification.fecha_inicio,
+      fecha_fin: notification.fecha_fin,
       dia_pago_programado: notification.dia_pago_programado,
       id_periodicidad: notification.id_periodicidad,
       periodicidad_nombre:
@@ -564,176 +605,321 @@ export class NotificacionesService implements OnModuleInit {
   }
 
   private async createSchemaIfNeeded(): Promise<void> {
-    try {
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS periodicidad (
-          id_periodicidad SERIAL PRIMARY KEY,
-          nombre_periodicidad VARCHAR(80) NOT NULL,
-          descripcion VARCHAR(180) NULL,
-          codigo VARCHAR(40) NOT NULL UNIQUE,
-          estado BOOLEAN NOT NULL DEFAULT TRUE
-        )
-      `);
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS periodicidad (
+        id_periodicidad SERIAL PRIMARY KEY,
+        nombre_periodicidad VARCHAR(80) NULL,
+        descripcion VARCHAR(180) NULL,
+        codigo VARCHAR(40) NULL,
+        estado BOOLEAN NOT NULL DEFAULT TRUE,
+        fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ADD COLUMN IF NOT EXISTS id_periodicidad SERIAL
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE periodicidad
+      ADD COLUMN IF NOT EXISTS nombre_periodicidad VARCHAR(80)
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ADD COLUMN IF NOT EXISTS nombre_periodicidad VARCHAR(80)
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE periodicidad
+      ADD COLUMN IF NOT EXISTS codigo VARCHAR(40)
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ADD COLUMN IF NOT EXISTS descripcion VARCHAR(180) NULL
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE periodicidad
+      ADD COLUMN IF NOT EXISTS estado BOOLEAN NOT NULL DEFAULT TRUE
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ADD COLUMN IF NOT EXISTS codigo VARCHAR(40)
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE periodicidad
+      ADD COLUMN IF NOT EXISTS fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ADD COLUMN IF NOT EXISTS estado BOOLEAN NOT NULL DEFAULT TRUE
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE periodicidad
+      ALTER COLUMN descripcion TYPE VARCHAR(180)
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ALTER COLUMN nombre_periodicidad TYPE VARCHAR(80)
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE periodicidad
+      ALTER COLUMN descripcion DROP NOT NULL
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ALTER COLUMN descripcion TYPE VARCHAR(180)
-      `);
+    await this.dataSource.query(`
+      UPDATE periodicidad
+      SET nombre_periodicidad = CASE
+        WHEN nombre_periodicidad IS NOT NULL AND BTRIM(nombre_periodicidad) <> '' THEN nombre_periodicidad
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'MENSUAL' THEN 'Cada mes'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'ANUAL' THEN 'Cada ano'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'DIARIA' THEN 'Diaria'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'SEMANAL' THEN 'Semanal'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'QUINCENAL' THEN 'Quincenal'
+        ELSE NULL
+      END
+      WHERE nombre_periodicidad IS NULL OR BTRIM(nombre_periodicidad) = ''
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE periodicidad
-        ALTER COLUMN codigo TYPE VARCHAR(40)
-      `);
+    await this.dataSource.query(`
+      UPDATE periodicidad
+      SET codigo = CASE
+        WHEN codigo IS NOT NULL AND BTRIM(codigo) <> '' THEN LOWER(BTRIM(codigo))
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'MENSUAL' THEN 'mensual'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'ANUAL' THEN 'anual'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'DIARIA' THEN 'diaria'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'SEMANAL' THEN 'semanal'
+        WHEN UPPER(BTRIM(COALESCE(descripcion, ''))) = 'QUINCENAL' THEN 'quincenal'
+        ELSE NULL
+      END
+      WHERE codigo IS NULL OR BTRIM(codigo) = ''
+    `);
 
-      await this.dataSource.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_periodicidad_codigo
-        ON periodicidad (codigo)
-      `);
+    await this.dataSource.query(`
+      UPDATE periodicidad
+      SET estado = FALSE
+      WHERE codigo IS NULL OR BTRIM(codigo) = ''
+    `);
 
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS notificaciones_programadas (
-          id_notificacion_programada SERIAL PRIMARY KEY,
-          id_usuario INTEGER NOT NULL,
-          descripcion VARCHAR(160) NOT NULL,
-          dia_pago_programado INTEGER NOT NULL CHECK (dia_pago_programado BETWEEN 1 AND 31),
-          id_periodicidad INTEGER NOT NULL REFERENCES periodicidad (id_periodicidad),
-          estado BOOLEAN NOT NULL DEFAULT TRUE,
-          fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW(),
-          fecha_actualizacion TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-      `);
+    await this.dataSource.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_periodicidad_codigo
+      ON periodicidad (codigo)
+      WHERE codigo IS NOT NULL
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS id_notificacion_programada SERIAL
-      `);
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS notificaciones_programadas (
+        id_notificacion_programada SERIAL PRIMARY KEY,
+        id_usuario INTEGER NOT NULL,
+        descripcion VARCHAR(160) NOT NULL,
+        prioridad VARCHAR(20) NOT NULL DEFAULT 'media',
+        fecha_inicio DATE NOT NULL,
+        fecha_fin DATE NOT NULL,
+        dia_pago_programado INTEGER NOT NULL CHECK (dia_pago_programado BETWEEN 1 AND 31),
+        id_periodicidad INTEGER NOT NULL REFERENCES periodicidad (id_periodicidad),
+        estado BOOLEAN NOT NULL DEFAULT TRUE,
+        fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW(),
+        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS id_usuario INTEGER
-      `);
+    await this.dataSource.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'notificaciones_programadas'
+            AND column_name = 'id_notificacion'
+        ) AND NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'notificaciones_programadas'
+            AND column_name = 'id_notificacion_programada'
+        ) THEN
+          ALTER TABLE notificaciones_programadas
+          RENAME COLUMN id_notificacion TO id_notificacion_programada;
+        END IF;
+      END $$;
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS descripcion VARCHAR(160)
-      `);
+    await this.dataSource.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'notificaciones_programadas'
+            AND column_name = 'dia_mes'
+        ) AND NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'notificaciones_programadas'
+            AND column_name = 'dia_pago_programado'
+        ) THEN
+          ALTER TABLE notificaciones_programadas
+          RENAME COLUMN dia_mes TO dia_pago_programado;
+        END IF;
+      END $$;
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS dia_pago_programado INTEGER
-      `);
+    await this.dataSource.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'notificaciones_programadas'
+            AND column_name = 'activo'
+        ) AND NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'notificaciones_programadas'
+            AND column_name = 'estado'
+        ) THEN
+          ALTER TABLE notificaciones_programadas
+          RENAME COLUMN activo TO estado;
+        END IF;
+      END $$;
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS id_periodicidad INTEGER
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS id_notificacion_programada SERIAL
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS estado BOOLEAN NOT NULL DEFAULT TRUE
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS id_usuario INTEGER
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS descripcion VARCHAR(160)
+    `);
 
-      await this.dataSource.query(`
-        ALTER TABLE notificaciones_programadas
-        ADD COLUMN IF NOT EXISTS fecha_actualizacion TIMESTAMP NOT NULL DEFAULT NOW()
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS dia_pago_programado INTEGER
+    `);
 
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_notificaciones_programadas_usuario
-        ON notificaciones_programadas (id_usuario, estado, dia_pago_programado, id_notificacion_programada DESC)
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS id_periodicidad INTEGER
+    `);
 
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS notificaciones (
-          id_notificacion SERIAL PRIMARY KEY,
-          id_usuario_destino INTEGER NOT NULL,
-          id_usuario_origen INTEGER NULL,
-          id_transaccion INTEGER NULL,
-          tipo VARCHAR(50) NOT NULL,
-          titulo VARCHAR(160) NOT NULL,
-          mensaje VARCHAR(500) NOT NULL,
-          leida BOOLEAN NOT NULL DEFAULT FALSE,
-          fecha_leida TIMESTAMP NULL,
-          fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS prioridad VARCHAR(20) NOT NULL DEFAULT 'media'
+    `);
 
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_fecha
-        ON notificaciones (id_usuario_destino, fecha_creacion DESC, id_notificacion DESC)
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS fecha_inicio DATE
+    `);
 
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_leida
-        ON notificaciones (id_usuario_destino, leida)
-      `);
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS fecha_fin DATE
+    `);
 
-      await this.seedPeriodicidades();
-    } catch (error) {
-      if (this.isRelationAlreadyBeingCreated(error)) {
-        return;
-      }
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS estado BOOLEAN NOT NULL DEFAULT TRUE
+    `);
 
-      throw error;
-    }
-  }
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
+    `);
 
-  private isRelationAlreadyBeingCreated(error: unknown): boolean {
-    if (!(error instanceof QueryFailedError)) {
-      return false;
-    }
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ADD COLUMN IF NOT EXISTS fecha_actualizacion TIMESTAMP NOT NULL DEFAULT NOW()
+    `);
 
-    const driverError = error.driverError as { code?: string; message?: string } | undefined;
-    return driverError?.code === '42P07' || driverError?.message?.includes('already exists') === true;
+    await this.dataSource.query(`
+      UPDATE notificaciones_programadas
+      SET prioridad = CASE
+        WHEN LOWER(BTRIM(COALESCE(prioridad, ''))) IN ('alta', 'media', 'baja')
+          THEN LOWER(BTRIM(prioridad))
+        ELSE 'media'
+      END
+    `);
+
+    await this.dataSource.query(`
+      UPDATE notificaciones_programadas
+      SET fecha_inicio = COALESCE(fecha_inicio, CURRENT_DATE),
+          fecha_fin = COALESCE(fecha_fin, fecha_inicio, CURRENT_DATE)
+      WHERE fecha_inicio IS NULL OR fecha_fin IS NULL
+    `);
+
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ALTER COLUMN fecha_inicio SET NOT NULL
+    `);
+
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ALTER COLUMN fecha_fin SET NOT NULL
+    `);
+
+    await this.dataSource.query(`
+      CREATE INDEX IF NOT EXISTS idx_notificaciones_programadas_usuario
+      ON notificaciones_programadas (
+        id_usuario,
+        estado,
+        prioridad,
+        fecha_inicio,
+        fecha_fin,
+        dia_pago_programado,
+        id_notificacion_programada DESC
+      )
+    `);
+
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS notificaciones (
+        id_notificacion SERIAL PRIMARY KEY,
+        id_usuario_destino INTEGER NOT NULL,
+        id_usuario_origen INTEGER NULL,
+        id_transaccion INTEGER NULL,
+        tipo VARCHAR(50) NOT NULL,
+        titulo VARCHAR(160) NOT NULL,
+        mensaje VARCHAR(500) NOT NULL,
+        leida BOOLEAN NOT NULL DEFAULT FALSE,
+        fecha_leida TIMESTAMP NULL,
+        fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await this.dataSource.query(`
+      CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_fecha
+      ON notificaciones (id_usuario_destino, fecha_creacion DESC, id_notificacion DESC)
+    `);
+
+    await this.dataSource.query(`
+      CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_leida
+      ON notificaciones (id_usuario_destino, leida)
+    `);
+
+    await this.seedPeriodicidades();
   }
 
   private async seedPeriodicidades(): Promise<void> {
     await this.dataSource.query(`
-      INSERT INTO periodicidad (nombre_periodicidad, descripcion, codigo, estado)
-      VALUES
-        ('Cada mes', 'Se repetira todos los meses en el mismo dia de pago.', 'mensual', TRUE),
-        ('Dia especifico', 'Se ejecutara una vez en el dia programado del ciclo actual.', 'fecha-especifica', TRUE),
-        ('Cada ano', 'Se repetira cada ano en el mismo dia del ciclo actual.', 'anual', TRUE)
-      ON CONFLICT (codigo)
-      DO UPDATE SET
-        nombre_periodicidad = EXCLUDED.nombre_periodicidad,
-        descripcion = EXCLUDED.descripcion,
-        estado = EXCLUDED.estado
+      UPDATE periodicidad
+      SET
+        nombre_periodicidad = data.nombre_periodicidad,
+        descripcion = data.descripcion,
+        estado = TRUE
+      FROM (
+        VALUES
+          ('mensual', 'Cada mes', 'Se repetira todos los meses en el mismo dia de pago.'),
+          ('fecha-especifica', 'Dia especifico', 'Se ejecutara una vez en el dia programado del ciclo actual.'),
+          ('anual', 'Cada ano', 'Se repetira cada ano en el mismo dia del ciclo actual.')
+      ) AS data(codigo, nombre_periodicidad, descripcion)
+      WHERE periodicidad.codigo = data.codigo
+    `);
+
+    await this.dataSource.query(`
+      INSERT INTO periodicidad (codigo, nombre_periodicidad, descripcion, estado)
+      SELECT data.codigo, data.nombre_periodicidad, data.descripcion, TRUE
+      FROM (
+        VALUES
+          ('mensual', 'Cada mes', 'Se repetira todos los meses en el mismo dia de pago.'),
+          ('fecha-especifica', 'Dia especifico', 'Se ejecutara una vez en el dia programado del ciclo actual.'),
+          ('anual', 'Cada ano', 'Se repetira cada ano en el mismo dia del ciclo actual.')
+      ) AS data(codigo, nombre_periodicidad, descripcion)
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM periodicidad existing
+        WHERE existing.codigo = data.codigo
+      )
     `);
   }
 
@@ -745,6 +931,15 @@ export class NotificacionesService implements OnModuleInit {
     if (!periodicidad) {
       throw new NotFoundException(
         `La periodicidad con id ${idPeriodicidad} no existe o no esta activa`,
+      );
+    }
+
+    if (
+      !periodicidad.nombre_periodicidad?.trim() ||
+      !periodicidad.codigo?.trim()
+    ) {
+      throw new BadRequestException(
+        `La periodicidad con id ${idPeriodicidad} no tiene una configuracion valida`,
       );
     }
 
@@ -771,5 +966,51 @@ export class NotificacionesService implements OnModuleInit {
     }
 
     return notification;
+  }
+
+  private normalizePrioridad(value: string): PrioridadNotificacion {
+    const normalized = value.trim().toLowerCase();
+
+    if (!PRIORIDADES_NOTIFICACION.includes(normalized as PrioridadNotificacion)) {
+      throw new BadRequestException(
+        'La prioridad debe ser alta, media o baja',
+      );
+    }
+
+    return normalized as PrioridadNotificacion;
+  }
+
+  private normalizeDateOnly(value: string, fieldName: string): string {
+    const trimmed = value.trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      throw new BadRequestException(
+        `El campo ${fieldName} debe estar en formato YYYY-MM-DD`,
+      );
+    }
+
+    const [year, month, day] = trimmed.split('-').map((part) => Number(part));
+    const normalized = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      Number.isNaN(normalized.getTime()) ||
+      normalized.getUTCFullYear() !== year ||
+      normalized.getUTCMonth() !== month - 1 ||
+      normalized.getUTCDate() !== day
+    ) {
+      throw new BadRequestException(
+        `El campo ${fieldName} contiene una fecha invalida`,
+      );
+    }
+
+    return trimmed;
+  }
+
+  private ensureDateRange(fechaInicio: string, fechaFin: string): void {
+    if (fechaFin < fechaInicio) {
+      throw new BadRequestException(
+        'La fecha_fin no puede ser menor que la fecha_inicio',
+      );
+    }
   }
 }

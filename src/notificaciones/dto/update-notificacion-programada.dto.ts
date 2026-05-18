@@ -1,10 +1,32 @@
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class UpdateNotificacionProgramadaDto {
   @IsOptional()
   @IsString()
   @MaxLength(160)
   descripcion?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['alta', 'media', 'baja'])
+  prioridad?: 'alta' | 'media' | 'baja';
+
+  @IsOptional()
+  @IsDateString()
+  fecha_inicio?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fecha_fin?: string;
 
   @IsOptional()
   @IsInt()

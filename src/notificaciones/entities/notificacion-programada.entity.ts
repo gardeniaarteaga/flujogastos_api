@@ -21,6 +21,15 @@ export class NotificacionProgramada {
   @Column({ name: 'descripcion', type: 'varchar', length: 160 })
   descripcion!: string;
 
+  @Column({ name: 'prioridad', type: 'varchar', length: 20, default: 'media' })
+  prioridad!: 'alta' | 'media' | 'baja';
+
+  @Column({ name: 'fecha_inicio', type: 'date' })
+  fecha_inicio!: string;
+
+  @Column({ name: 'fecha_fin', type: 'date' })
+  fecha_fin!: string;
+
   @Column({ name: 'dia_pago_programado', type: 'int' })
   dia_pago_programado!: number;
 
