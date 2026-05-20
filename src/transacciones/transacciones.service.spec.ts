@@ -573,4 +573,156 @@ describe("TransaccionesService", () => {
     expect(serviceInternals.saveDetallesTransaccion).toHaveBeenCalled();
     expect(detallesEditados.map((detalle) => detalle.id_estado)).toEqual([3, 3]);
   });
+
+  it("aplica pagos masivos agrupando cuotas por transaccion con el saldo pendiente actual", async () => {
+    const detalleRepository = createRepositoryMock<DetalleTransaccion>();
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      detalleRepository as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+
+    detalleRepository.find.mockResolvedValue([
+      {
+        id: 11,
+        id_transaccion: 1,
+      },
+      {
+        id: 12,
+        id_transaccion: 1,
+      },
+      {
+        id: 21,
+        id_transaccion: 2,
+      },
+    ] as DetalleTransaccion[]);
+
+    jest
+      .spyOn(serviceInternals, "findAccessibleTransaccion")
+      .mockImplementation(async (...args: unknown[]) => {
+        const [idTransaccion] = args as [number];
+
+        return {
+          transaccion: { id_transaccion: idTransaccion },
+          detalles:
+            idTransaccion === 1
+              ? [
+                  {
+                    id: 11,
+                    monto: "40.00",
+                    monto_pagado: "10.00",
+                    interes_pendiente: "0.00",
+                    id_estado: 3,
+                    id_usuario_relacionado: 9,
+                    id_tipo_transaccion: 2,
+                  },
+                  {
+                    id: 12,
+                    monto: "30.00",
+                    monto_pagado: "0.00",
+                    interes_pendiente: "5.00",
+                    id_estado: 4,
+                    id_usuario_relacionado: 9,
+                    id_tipo_transaccion: 2,
+                  },
+                ]
+              : [
+                  {
+                    id: 21,
+                    monto: "25.00",
+                    monto_pagado: "0.00",
+                    interes_pendiente: "0.00",
+                    id_estado: 3,
+                    id_usuario_relacionado: 9,
+                    id_tipo_transaccion: 2,
+                  },
+                ],
+          detallesCompletos: [],
+          isOwner: false,
+        };
+      });
+    const applyPagosSpy = jest
+      .spyOn(service, "applyPagos")
+      .mockResolvedValue({} as never);
+
+    const response = await service.applyPagosMasivos(
+      { ids_detalle: [11, 12, 21] },
+      9,
+    );
+
+    expect(applyPagosSpy).toHaveBeenNthCalledWith(
+      1,
+      1,
+      {
+        pagos: [
+          { id_detalle: 11, monto: 30 },
+          { id_detalle: 12, monto: 35 },
+        ],
+      },
+      9,
+    );
+    expect(applyPagosSpy).toHaveBeenNthCalledWith(
+      2,
+      2,
+      {
+        pagos: [{ id_detalle: 21, monto: 25 }],
+      },
+      9,
+    );
+    expect(response).toEqual({
+      transacciones_actualizadas: [1, 2],
+      detalles_pagados: 3,
+    });
+  });
+
+  it("rechaza pagos masivos sobre cuotas que no pertenecen al usuario logueado", async () => {
+    const detalleRepository = createRepositoryMock<DetalleTransaccion>();
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      detalleRepository as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+
+    detalleRepository.find.mockResolvedValue([
+      {
+        id: 11,
+        id_transaccion: 1,
+      },
+    ] as DetalleTransaccion[]);
+
+    jest.spyOn(serviceInternals, "findAccessibleTransaccion").mockResolvedValue({
+      transaccion: { id_transaccion: 1 },
+      detalles: [],
+      detallesCompletos: [],
+      isOwner: false,
+    });
+    const applyPagosSpy = jest
+      .spyOn(service, "applyPagos")
+      .mockResolvedValue({} as never);
+
+    await expect(
+      service.applyPagosMasivos({ ids_detalle: [11] }, 9),
+    ).rejects.toThrow(
+      "No tienes permiso para aplicar pagos sobre la cuota 11",
+    );
+    expect(applyPagosSpy).not.toHaveBeenCalled();
+  });
 });

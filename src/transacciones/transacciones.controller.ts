@@ -11,6 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 
+import { ApplyPagosMasivosDto } from './dto/apply-pagos-masivos.dto';
 import { ApplyPagosTransaccionDto } from './dto/apply-pagos-transaccion.dto';
 import { CreateTransaccionDto } from './dto/create-transaccion.dto';
 import { TransaccionesService } from './transacciones.service';
@@ -38,6 +39,18 @@ export class TransaccionesController {
   ) {
     return this.transaccionesService.create(
       createTransaccionDto,
+      this.resolveIdUsuario(authenticatedUserId, idUsuario),
+    );
+  }
+
+  @Patch('aplicar-pagos-masivos')
+  applyPagosMasivos(
+    @Body() applyPagosMasivosDto: ApplyPagosMasivosDto,
+    @Headers('x-user-id') authenticatedUserId?: string,
+    @Query('id_usuario') idUsuario?: string,
+  ) {
+    return this.transaccionesService.applyPagosMasivos(
+      applyPagosMasivosDto,
       this.resolveIdUsuario(authenticatedUserId, idUsuario),
     );
   }

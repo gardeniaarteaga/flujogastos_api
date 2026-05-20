@@ -16,6 +16,7 @@ import { Participante } from "../participantes/entities/participante.entity";
 import { Subcategoria } from "../subcategorias/entities/subcategoria.entity";
 import { TipoTransaccion } from "../tipo-transaccion/entities/tipo-transaccion.entity";
 import { Usuario } from "../usuarios/entities/usuario.entity";
+import { ApplyPagosMasivosDto } from "./dto/apply-pagos-masivos.dto";
 import { ApplyPagosTransaccionDto } from "./dto/apply-pagos-transaccion.dto";
 import { ApplyCuotaActualizadaDto } from "./dto/apply-cuota-actualizada.dto";
 import { CuotaProgramadaDto } from "./dto/cuota-programada.dto";
@@ -120,6 +121,11 @@ type DetalleUpdatePlan = {
   activeExistingDetalles: DetalleTransaccion[];
   removedPendingDetalles: DetalleTransaccion[];
   newCuotas: ResolvedCuotaInput[];
+};
+
+type ApplyPagosMasivosResponse = {
+  transacciones_actualizadas: number[];
+  detalles_pagados: number;
 };
 
 @Injectable()
@@ -598,6 +604,91 @@ export class TransaccionesService {
     });
 
     return this.findOneDetailed(id, idUsuario);
+  }
+
+  async applyPagosMasivos(
+    applyPagosMasivosDto: ApplyPagosMasivosDto,
+    idUsuario: number,
+  ): Promise<ApplyPagosMasivosResponse> {
+    this.validateApplyPagosMasivosRequest(applyPagosMasivosDto);
+
+    const idsDetalle = applyPagosMasivosDto.ids_detalle ?? [];
+    const detallesSeleccionados = await this.detalleTransaccionesRepository.find({
+      where: { id: In(idsDetalle) },
+      order: { id: "ASC" },
+    });
+    const detallesMap = new Map(
+      detallesSeleccionados.map((detalle) => [detalle.id, detalle]),
+    );
+
+    if (detallesSeleccionados.length !== idsDetalle.length) {
+      const detalleFaltante = idsDetalle.find((idDetalle) => !detallesMap.has(idDetalle));
+      throw new NotFoundException(
+        `La cuota con id ${detalleFaltante} no existe o ya no esta disponible`,
+      );
+    }
+
+    const detalleIdsPorTransaccion = new Map<number, number[]>();
+
+    idsDetalle.forEach((idDetalle) => {
+      const detalle = detallesMap.get(idDetalle)!;
+      const detalleIds = detalleIdsPorTransaccion.get(detalle.id_transaccion) ?? [];
+      detalleIds.push(idDetalle);
+      detalleIdsPorTransaccion.set(detalle.id_transaccion, detalleIds);
+    });
+
+    for (const [idTransaccion, detalleIds] of detalleIdsPorTransaccion.entries()) {
+      const visibleTransaccion = await this.findAccessibleTransaccion(
+        idTransaccion,
+        idUsuario,
+      );
+      const detallesAccesiblesMap = new Map(
+        visibleTransaccion.detalles.map((detalle) => [detalle.id, detalle]),
+      );
+      const pagos = detalleIds.map((idDetalle) => {
+        const detalle = detallesAccesiblesMap.get(idDetalle);
+        const canApplyMassivePago =
+          detalle &&
+          (detalle.id_usuario_relacionado === idUsuario ||
+            (visibleTransaccion.isOwner &&
+              detalle.id_tipo_transaccion ===
+                DETALLE_TIPO_TRANSACCION_TITULAR_ID));
+
+        if (!canApplyMassivePago) {
+          throw new ForbiddenException(
+            `No tienes permiso para aplicar pagos sobre la cuota ${idDetalle}`,
+          );
+        }
+
+        const saldoPendiente = this.centsToAmount(
+          this.getSaldoPendienteCentavos(detalle),
+        );
+
+        if (this.toCents(saldoPendiente) <= 0) {
+          throw new BadRequestException(
+            `La cuota con id ${idDetalle} ya se encuentra totalmente pagada`,
+          );
+        }
+
+        return {
+          id_detalle: idDetalle,
+          monto: saldoPendiente,
+        };
+      });
+
+      await this.applyPagos(
+        idTransaccion,
+        {
+          pagos,
+        },
+        idUsuario,
+      );
+    }
+
+    return {
+      transacciones_actualizadas: Array.from(detalleIdsPorTransaccion.keys()),
+      detalles_pagados: idsDetalle.length,
+    };
   }
 
   private async splitDetalleAfterPartialPayment(
@@ -1591,6 +1682,26 @@ export class TransaccionesService {
     if (cuotaIdsUnicos.size !== cuotaIds.length) {
       throw new BadRequestException(
         "No puedes repetir la misma cuota dentro de una sola redistribucion",
+      );
+    }
+  }
+
+  private validateApplyPagosMasivosRequest(
+    applyPagosMasivosDto: ApplyPagosMasivosDto,
+  ): void {
+    const idsDetalle = applyPagosMasivosDto.ids_detalle ?? [];
+
+    if (idsDetalle.length === 0) {
+      throw new BadRequestException(
+        "Debes enviar al menos una cuota para aplicar el pago masivo",
+      );
+    }
+
+    const idsDetalleUnicos = new Set(idsDetalle);
+
+    if (idsDetalleUnicos.size !== idsDetalle.length) {
+      throw new BadRequestException(
+        "No puedes repetir la misma cuota dentro de un pago masivo",
       );
     }
   }
