@@ -1,6 +1,7 @@
 import { TransaccionesService } from "./transacciones.service";
 import { DetalleTransaccion } from "./entities/detalle-transaccion.entity";
 import { Transaccion } from "./entities/transaccion.entity";
+import { EntityManager } from "typeorm";
 
 type RepositoryMock<T = unknown> = {
   find: jest.Mock<Promise<T[]>, [unknown?]>;
@@ -13,6 +14,87 @@ const createRepositoryMock = <T = unknown>(): RepositoryMock<T> => ({
 });
 
 describe("TransaccionesService", () => {
+  it("crea las cuotas compartidas pendientes y solo marca pagada la cuota unica 1/1 del titular", async () => {
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+    const manager = {
+      create: jest.fn((_entity, value) => value),
+      find: jest.fn().mockResolvedValue([
+        { id_participante: 30, id_usuario_relacionado: 99 },
+      ]),
+      save: jest.fn().mockImplementation(async (_entity, value) => value),
+    } as unknown as EntityManager;
+    const resolvedInput = {
+      fecha: "2026-05-23",
+      calcula_interes: false,
+      cuotas_sin_intereses: false,
+      titular_cuota_unica_pagada: true,
+      fecha_inicio_interes: null,
+      monto: 100,
+      intereses: 0,
+      id_tipo_transaccion: 1,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 4,
+      descripcion: "Compartido",
+      pagocompartido: true,
+      cantidad_cuotas_titular: 1,
+      cuotas_titular: [{ monto: 40, fecha_programada: "2026-05-23" }],
+      participantes_detalle: [
+        {
+          id_participante: 30,
+          monto: 60,
+          cantidad_cuotas: 1,
+          cuotas: [{ monto: 60, fecha_programada: "2026-05-24" }],
+        },
+      ],
+    };
+
+    const detalles = await serviceInternals.saveDetallesTransaccion(
+      manager,
+      1,
+      1,
+      20,
+      resolvedInput,
+      3,
+      5,
+    );
+
+    expect(detalles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id_participante: 20,
+          numero_cuota: 1,
+          total_cuotas: 1,
+          id_estado: 5,
+          monto_pagado: "40.00",
+          fecha_pago: "2026-05-23",
+        }),
+        expect.objectContaining({
+          id_participante: 30,
+          numero_cuota: 1,
+          total_cuotas: 1,
+          id_estado: 3,
+          monto_pagado: "0.00",
+          fecha_pago: null,
+        }),
+      ]),
+    );
+  });
+
   it("muestra el estado guardado de la transaccion aunque las cuotas vencidas sigan pendientes", async () => {
     const transaccionesRepository = createRepositoryMock<Transaccion>();
     const detalleRepository = createRepositoryMock<DetalleTransaccion>();

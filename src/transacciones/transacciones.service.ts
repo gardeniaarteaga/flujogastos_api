@@ -102,6 +102,7 @@ type ResolvedTransaccionInput = {
   fecha: string;
   calcula_interes: boolean;
   cuotas_sin_intereses: boolean;
+  titular_cuota_unica_pagada: boolean;
   fecha_inicio_interes: string | null;
   monto: number;
   intereses: number;
@@ -218,6 +219,8 @@ export class TransaccionesService {
         idUsuario,
         titularParticipante.id_participante,
         resolvedInput,
+        estadoPendiente.id_estado,
+        estadoPagado.id_estado,
       );
       savedTransaccion.id_estado = this.resolveEstadoTransaccionDesdeDetalles(
         resolvedInput.id_tipo_transaccion,
@@ -229,6 +232,11 @@ export class TransaccionesService {
       savedTransaccion.saldo_pendiente = this.toNumericString(
         this.calculateTransaccionSaldoPendiente(detallesGuardados),
       );
+      savedTransaccion.fecha_ultimo_pago = detallesGuardados.some(
+        (detalle) => detalle.fecha_pago !== null,
+      )
+        ? new Date(resolvedInput.fecha)
+        : null;
       await manager.save(Transaccion, savedTransaccion);
 
       return savedTransaccion.id_transaccion;
@@ -386,6 +394,8 @@ export class TransaccionesService {
           idUsuario,
           visibleTransaccion.titularParticipante.id_participante,
           resolvedInput,
+          estadoPendiente.id_estado,
+          estadoPagado.id_estado,
         );
       }
       visibleTransaccion.transaccion.id_estado = resolvedInput.id_estado;
@@ -932,6 +942,7 @@ export class TransaccionesService {
         dto.cuotas_sin_intereses ??
         existingTransaccion?.cuotas_sin_intereses ??
         false,
+      titular_cuota_unica_pagada: dto.titular_cuota_unica_pagada ?? false,
       fecha_inicio_interes: null,
       monto: montoTitular,
       intereses:
@@ -1066,6 +1077,11 @@ export class TransaccionesService {
       );
     });
 
+    this.validateTitularCuotaUnicaPagadaInput(
+      resolvedInput,
+      montoTitularCalculado,
+    );
+
     return resolvedInput;
   }
 
@@ -1108,6 +1124,8 @@ export class TransaccionesService {
     idUsuario: number,
     titularParticipanteId: number,
     resolvedInput: ResolvedTransaccionInput,
+    estadoPendienteId: number,
+    estadoPagadoId: number,
   ): Promise<DetalleTransaccion[]> {
     const montoTitular = this.calculateTitularMonto(
       resolvedInput.monto,
@@ -1134,6 +1152,11 @@ export class TransaccionesService {
     );
     const fechaInicioInteres =
       resolvedInput.fecha_inicio_interes ?? resolvedInput.fecha;
+    const estadoInicialDetalleId = this.resolveInitialDetalleEstadoId(
+      resolvedInput.id_estado,
+      estadoPendienteId,
+      estadoPagadoId,
+    );
 
     const detalleEntities = [
       ...(titularTieneParticipacion
@@ -1145,7 +1168,7 @@ export class TransaccionesService {
             resolvedInput.cuotas_titular,
             DETALLE_TIPO_TRANSACCION_TITULAR_ID,
             resolvedInput.id_metodo_pago,
-            resolvedInput.id_estado,
+            estadoInicialDetalleId,
             null,
             fechaInicioInteres,
             resolvedInput.cuotas_sin_intereses,
@@ -1160,7 +1183,7 @@ export class TransaccionesService {
           detalle.cuotas,
           DETALLE_TIPO_TRANSACCION_PARTICIPANTE_ID,
           resolvedInput.id_metodo_pago,
-          resolvedInput.id_estado,
+          estadoInicialDetalleId,
           participantesRelacionadosMap.get(detalle.id_participante) ?? null,
           fechaInicioInteres,
           resolvedInput.cuotas_sin_intereses,
@@ -1175,7 +1198,24 @@ export class TransaccionesService {
       );
     }
 
+    this.applyTitularSinglePaymentIfNeeded(
+      detalleEntities,
+      titularParticipanteId,
+      resolvedInput,
+      estadoPagadoId,
+    );
+
     return manager.save(DetalleTransaccion, detalleEntities);
+  }
+
+  private resolveInitialDetalleEstadoId(
+    idEstadoTransaccion: number,
+    estadoPendienteId: number,
+    estadoPagadoId: number,
+  ): number {
+    return idEstadoTransaccion === estadoPagadoId
+      ? estadoPagadoId
+      : estadoPendienteId;
   }
 
   private async findOneDetailed(
@@ -1881,6 +1921,33 @@ export class TransaccionesService {
     }
   }
 
+  private validateTitularCuotaUnicaPagadaInput(
+    resolvedInput: ResolvedTransaccionInput,
+    montoTitularCalculado: number,
+  ): void {
+    if (!resolvedInput.titular_cuota_unica_pagada) {
+      return;
+    }
+
+    if (resolvedInput.id_tipo_transaccion === 2) {
+      throw new BadRequestException(
+        "Solo se puede marcar como pagada la cuota unica inicial del titular en gastos",
+      );
+    }
+
+    if (resolvedInput.cuotas_titular.length !== 1) {
+      throw new BadRequestException(
+        "Solo se puede marcar como pagada la cuota unica 1/1 del titular",
+      );
+    }
+
+    if (this.toCents(montoTitularCalculado) <= 0) {
+      throw new BadRequestException(
+        "La cuota unica del titular debe tener un monto mayor que 0 para marcarla como pagada",
+      );
+    }
+  }
+
   private resolveEstadoPagoTransaccion(
     detalles: DetalleTransaccion[],
     estadoPendienteId: number,
@@ -2480,6 +2547,37 @@ export class TransaccionesService {
     );
   }
 
+  private applyTitularSinglePaymentIfNeeded(
+    detalleEntities: DetalleTransaccion[],
+    titularParticipanteId: number,
+    resolvedInput: ResolvedTransaccionInput,
+    estadoPagadoId: number,
+  ): void {
+    if (!resolvedInput.titular_cuota_unica_pagada) {
+      return;
+    }
+
+    const detalleTitular = detalleEntities.find(
+      (detalle) =>
+        detalle.id_participante === titularParticipanteId &&
+        detalle.id_tipo_transaccion === DETALLE_TIPO_TRANSACCION_TITULAR_ID &&
+        detalle.numero_cuota === 1 &&
+        detalle.total_cuotas === 1,
+    );
+
+    if (!detalleTitular) {
+      return;
+    }
+
+    detalleTitular.monto_pagado = this.toNumericString(
+      Number(detalleTitular.monto ?? 0),
+    );
+    detalleTitular.interes_pagado = this.toNumericString(0);
+    detalleTitular.interes_pendiente = this.toNumericString(0);
+    detalleTitular.fecha_pago = resolvedInput.fecha;
+    detalleTitular.id_estado = estadoPagadoId;
+  }
+
   private distributeMontoEnCuotas(
     montoTotal: number,
     totalCuotas: number,
@@ -2854,37 +2952,6 @@ export class TransaccionesService {
         cuotasEnviadas,
         idParticipante,
       );
-
-      const totalPendienteExistenteCentavos = detallesParticipante.reduce(
-        (sum, detalle) =>
-          sum +
-          Math.max(
-            0,
-            this.toCents(Number(detalle.monto)) -
-              this.toCents(Number(detalle.monto_pagado ?? 0)),
-          ),
-        0,
-      );
-      const totalBloqueadoEnviadoCentavos = plan.activeExistingDetalles.reduce(
-        (sum, detalle, index) =>
-          sum +
-          (this.hasAppliedPaymentOnDetalle(detalle)
-            ? this.toCents(cuotasEnviadas[index]?.monto ?? 0)
-            : 0),
-        0,
-      );
-      const totalEnviadoCentavos = cuotasEnviadas.reduce(
-        (sum, cuota) => sum + this.toCents(cuota.monto),
-        0,
-      );
-      const totalPendienteEnviadoCentavos =
-        totalEnviadoCentavos - totalBloqueadoEnviadoCentavos;
-
-      if (totalPendienteExistenteCentavos !== totalPendienteEnviadoCentavos) {
-        throw new BadRequestException(
-          `Solo puedes redistribuir las cuotas pendientes del participante ${idParticipante}; su total debe mantenerse igual`,
-        );
-      }
 
       plan.activeExistingDetalles.forEach((detalle, index) => {
         if (!this.hasAppliedPaymentOnDetalle(detalle)) {

@@ -63,6 +63,10 @@ export class CreateTransaccionDto {
   pagocompartido!: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  titular_cuota_unica_pagada?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   cantidad_cuotas_titular?: number;
