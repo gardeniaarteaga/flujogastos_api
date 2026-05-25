@@ -37,6 +37,8 @@ describe('InteresesService', () => {
     expect(sql).toContain('AS dias_a_calcular');
     expect(sql).toContain('AS dias_interes');
     expect(sql).toContain('p.fecha_actual < db.fecha_inicio_interes');
+    expect(sql).toContain('INNER JOIN categorias c');
+    expect(sql).toContain("UPPER(COALESCE(c.nombre_categoria, '')) <> 'INGRESOS'");
     expect(sql).toContain('interes_acumulado = objetivo.interes_acumulado_objetivo');
     expect(sql).toContain('dias_interes = objetivo.dias_interes');
     expect(sql).toContain(

@@ -68,6 +68,8 @@ export class InteresesService {
           FROM detalle_transacciones dt
           INNER JOIN transacciones t
             ON t.id_transaccion = dt.id_transaccion
+          INNER JOIN categorias c
+            ON c.id_categoria = t.id_categoria
           INNER JOIN estados_transaccion et
             ON et.id_estado = t.id_estado
           INNER JOIN metodos_pago mp
@@ -75,6 +77,7 @@ export class InteresesService {
           WHERE et.flag = 'T'
             AND UPPER(COALESCE(et.estado, '')) = 'ACTIVO'
             AND UPPER(COALESCE(et.nombre_estado, '')) <> 'ANULADO'
+            AND UPPER(COALESCE(c.nombre_categoria, '')) <> 'INGRESOS'
             AND COALESCE(mp.calcula_interes, false) = true
             AND COALESCE(mp.tasa_anual, 0) > 0
             AND dt.fecha_inicio_interes IS NOT NULL
