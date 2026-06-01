@@ -90,6 +90,7 @@ const PRIORIDADES_NOTIFICACION: PrioridadNotificacion[] = ['alta', 'media', 'baj
 
 @Injectable()
 export class NotificacionesService implements OnModuleInit {
+  private static readonly BUSINESS_TIME_ZONE = 'America/El_Salvador';
   private ensureSchemaPromise: Promise<void> | null = null;
 
   constructor(
@@ -150,7 +151,7 @@ export class NotificacionesService implements OnModuleInit {
         (item) =>
           item.nombre_periodicidad?.trim().length > 0 &&
           item.codigo?.trim().length > 0 &&
-          ['mensual', 'fecha-especifica', 'anual'].includes(
+          ['mensual', 'fecha-especifica', 'anual', 'quincenal'].includes(
             item.codigo.trim().toLowerCase(),
           ),
       )
@@ -167,6 +168,7 @@ export class NotificacionesService implements OnModuleInit {
     idUsuario: number,
   ): Promise<NotificacionProgramadaResponse[]> {
     await this.ensureSchemaReady();
+    const visibleUntilCutoffDate = this.getLocalDateKey(-15);
 
     const items = await this.notificacionesProgramadasRepository.find({
       where: { id_usuario: idUsuario, estado: true },
@@ -177,7 +179,11 @@ export class NotificacionesService implements OnModuleInit {
       },
     });
 
-    return items.map((item) => this.toProgramadaResponse(item));
+    const visibleItems = items.filter(
+      (item) => item.fecha_fin >= visibleUntilCutoffDate,
+    );
+
+    return visibleItems.map((item) => this.toProgramadaResponse(item));
   }
 
   async createProgramada(
@@ -938,6 +944,19 @@ export class NotificacionesService implements OnModuleInit {
     await this.seedPeriodicidades();
   }
 
+  private getLocalDateKey(offsetDays = 0): string {
+    const currentDate = new Date();
+    currentDate.setDate(currentDate.getDate() + offsetDays);
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: NotificacionesService.BUSINESS_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+
+    return formatter.format(currentDate);
+  }
+
   private async seedPeriodicidades(): Promise<void> {
     await this.dataSource.query(`
       UPDATE periodicidad
@@ -948,6 +967,7 @@ export class NotificacionesService implements OnModuleInit {
       FROM (
         VALUES
           ('mensual', 'Cada mes', 'Se repetira todos los meses en el mismo dia de pago.'),
+          ('quincenal', 'Quincenal', 'Se repetira los dias 15 y 30 de cada mes.'),
           ('fecha-especifica', 'Dia especifico', 'Se ejecutara una vez en el dia programado del ciclo actual.'),
           ('anual', 'Cada ano', 'Se repetira cada ano en el mismo dia del ciclo actual.')
       ) AS data(codigo, nombre_periodicidad, descripcion)
@@ -960,6 +980,7 @@ export class NotificacionesService implements OnModuleInit {
       FROM (
         VALUES
           ('mensual', 'Cada mes', 'Se repetira todos los meses en el mismo dia de pago.'),
+          ('quincenal', 'Quincenal', 'Se repetira los dias 15 y 30 de cada mes.'),
           ('fecha-especifica', 'Dia especifico', 'Se ejecutara una vez en el dia programado del ciclo actual.'),
           ('anual', 'Cada ano', 'Se repetira cada ano en el mismo dia del ciclo actual.')
       ) AS data(codigo, nombre_periodicidad, descripcion)
