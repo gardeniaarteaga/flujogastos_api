@@ -251,6 +251,10 @@ export class NotificacionesService implements OnModuleInit {
       entity.dia_pago_programado = updateDto.dia_pago_programado;
     }
 
+    if (updateDto.estado !== undefined) {
+      entity.estado = updateDto.estado;
+    }
+
     this.ensureDateRange(entity.fecha_inicio, entity.fecha_fin);
 
     const saved = await this.notificacionesProgramadasRepository.save(entity);

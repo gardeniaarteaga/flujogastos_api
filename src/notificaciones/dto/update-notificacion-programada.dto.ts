@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
@@ -38,4 +39,8 @@ export class UpdateNotificacionProgramadaDto {
   @IsInt()
   @Min(1)
   id_periodicidad?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  estado?: boolean;
 }
