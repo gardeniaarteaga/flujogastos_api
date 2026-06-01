@@ -95,6 +95,185 @@ describe("TransaccionesService", () => {
     );
   });
 
+  it("al crear un ingreso pagado marca todas las cuotas con fecha actual y monto pagado completo", async () => {
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+    jest
+      .spyOn(serviceInternals, "todayAsLocalIsoDate")
+      .mockReturnValue("2026-05-31");
+    const manager = {
+      create: jest.fn((_entity, value) => value),
+      find: jest.fn().mockResolvedValue([]),
+      save: jest.fn().mockImplementation(async (_entity, value) => value),
+    } as unknown as EntityManager;
+    const resolvedInput = {
+      fecha: "2026-05-20",
+      calcula_interes: false,
+      cuotas_sin_intereses: false,
+      titular_cuota_unica_pagada: false,
+      fecha_inicio_interes: null,
+      monto: 100,
+      intereses: 0,
+      id_tipo_transaccion: 2,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 5,
+      descripcion: "Ingreso pagado",
+      pagocompartido: false,
+      cantidad_cuotas_titular: 2,
+      cuotas_titular: [
+        { monto: 50, fecha_programada: "2026-06-10" },
+        { monto: 50, fecha_programada: "2026-06-25" },
+      ],
+      participantes_detalle: [],
+    };
+
+    const detalles = await serviceInternals.saveDetallesTransaccion(
+      manager,
+      1,
+      1,
+      20,
+      resolvedInput,
+      3,
+      5,
+    );
+
+    expect(detalles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          numero_cuota: 1,
+          total_cuotas: 2,
+          id_estado: 5,
+          fecha_programada: "2026-05-31",
+          fecha_pago: "2026-05-31",
+          monto_pagado: "50.00",
+        }),
+        expect.objectContaining({
+          numero_cuota: 2,
+          total_cuotas: 2,
+          id_estado: 5,
+          fecha_programada: "2026-05-31",
+          fecha_pago: "2026-05-31",
+          monto_pagado: "50.00",
+        }),
+      ]),
+    );
+  });
+
+  it("al actualizar un ingreso pagado completa fecha_pago actual en cuotas pendientes o nuevas", async () => {
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+    jest
+      .spyOn(serviceInternals, "todayAsLocalIsoDate")
+      .mockReturnValue("2026-05-31");
+    const manager = {
+      create: jest.fn((_entity, value) => value),
+      save: jest.fn().mockImplementation(async (_entity, value) => value),
+    } as unknown as EntityManager;
+    const existingDetalles = [
+      {
+        id: 100,
+        id_usuario: 1,
+        id_transaccion: 1,
+        fecha_pago: null,
+        fecha_programada: "2026-06-10",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 20,
+        id_usuario_relacionado: null,
+        monto: "40.00",
+        monto_pagado: "0.00",
+        numero_cuota: 1,
+        total_cuotas: 1,
+        id_tipo_transaccion: 2,
+        id_metodo_pago: 10,
+        id_estado: 3,
+        fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+      } as DetalleTransaccion,
+    ];
+    const resolvedInput = {
+      fecha: "2026-05-20",
+      calcula_interes: false,
+      cuotas_sin_intereses: false,
+      titular_cuota_unica_pagada: false,
+      fecha_inicio_interes: null,
+      monto: 100,
+      intereses: 0,
+      id_tipo_transaccion: 2,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 5,
+      descripcion: "Ingreso pagado editado",
+      pagocompartido: false,
+      cantidad_cuotas_titular: 2,
+      cuotas_titular: [
+        { monto: 40, fecha_programada: "2026-06-10" },
+        { monto: 60, fecha_programada: "2026-06-25" },
+      ],
+      participantes_detalle: [],
+    };
+
+    const detalles = await serviceInternals.updateDetallesPreservingAppliedPayments(
+      manager,
+      existingDetalles,
+      20,
+      resolvedInput,
+      3,
+      5,
+    );
+
+    expect(detalles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          numero_cuota: 1,
+          total_cuotas: 2,
+          id_estado: 5,
+          fecha_programada: "2026-05-31",
+          fecha_pago: "2026-05-31",
+          monto_pagado: "40.00",
+        }),
+        expect.objectContaining({
+          numero_cuota: 2,
+          total_cuotas: 2,
+          id_estado: 5,
+          fecha_programada: "2026-05-31",
+          fecha_pago: "2026-05-31",
+          monto_pagado: "60.00",
+        }),
+      ]),
+    );
+  });
+
   it("muestra el estado guardado de la transaccion aunque las cuotas vencidas sigan pendientes", async () => {
     const transaccionesRepository = createRepositoryMock<Transaccion>();
     const detalleRepository = createRepositoryMock<DetalleTransaccion>();

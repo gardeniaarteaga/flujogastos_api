@@ -381,6 +381,7 @@ export class TransaccionesService {
           visibleTransaccion.titularParticipante.id_participante,
           resolvedInput,
           estadoPendiente.id_estado,
+          estadoPagado.id_estado,
         );
       } else {
         await manager.delete(DetalleTransaccion, {
@@ -1201,6 +1202,11 @@ export class TransaccionesService {
     this.applyTitularSinglePaymentIfNeeded(
       detalleEntities,
       titularParticipanteId,
+      resolvedInput,
+      estadoPagadoId,
+    );
+    this.applyIngresoPagadoDefaultsIfNeeded(
+      detalleEntities,
       resolvedInput,
       estadoPagadoId,
     );
@@ -2578,6 +2584,57 @@ export class TransaccionesService {
     detalleTitular.id_estado = estadoPagadoId;
   }
 
+  private applyIngresoPagadoDefaultsIfNeeded(
+    detalleEntities: DetalleTransaccion[],
+    resolvedInput: ResolvedTransaccionInput,
+    estadoPagadoId: number,
+  ): void {
+    if (
+      resolvedInput.id_tipo_transaccion !== 2 ||
+      resolvedInput.id_estado !== estadoPagadoId
+    ) {
+      return;
+    }
+
+    const today = this.todayAsLocalIsoDate();
+
+    detalleEntities.forEach((detalle) => {
+      this.applyIngresoPagadoDefaultsToDetalle(detalle, today, estadoPagadoId);
+    });
+  }
+
+  private applyIngresoPagadoDefaultsToDetalleIfNeeded(
+    detalle: DetalleTransaccion,
+    resolvedInput: ResolvedTransaccionInput,
+    estadoPagadoId: number,
+  ): void {
+    if (
+      resolvedInput.id_tipo_transaccion !== 2 ||
+      resolvedInput.id_estado !== estadoPagadoId
+    ) {
+      return;
+    }
+
+    this.applyIngresoPagadoDefaultsToDetalle(
+      detalle,
+      this.todayAsLocalIsoDate(),
+      estadoPagadoId,
+    );
+  }
+
+  private applyIngresoPagadoDefaultsToDetalle(
+    detalle: DetalleTransaccion,
+    currentDate: string,
+    estadoPagadoId: number,
+  ): void {
+    detalle.fecha_programada = currentDate;
+    detalle.fecha_pago = currentDate;
+    detalle.monto_pagado = this.toNumericString(Number(detalle.monto ?? 0));
+    detalle.interes_pagado = this.toNumericString(0);
+    detalle.interes_pendiente = this.toNumericString(0);
+    detalle.id_estado = estadoPagadoId;
+  }
+
   private distributeMontoEnCuotas(
     montoTotal: number,
     totalCuotas: number,
@@ -3093,6 +3150,7 @@ export class TransaccionesService {
     titularParticipanteId: number,
     resolvedInput: ResolvedTransaccionInput,
     estadoPendienteId: number,
+    estadoPagadoId: number,
   ): Promise<DetalleTransaccion[]> {
     const existingByParticipante =
       this.buildDetalleMapByParticipante(existingDetalles);
@@ -3150,6 +3208,11 @@ export class TransaccionesService {
         );
         detalle.numero_cuota = index + 1;
         detalle.total_cuotas = totalCuotasActivas;
+        this.applyIngresoPagadoDefaultsToDetalleIfNeeded(
+          detalle,
+          resolvedInput,
+          estadoPagadoId,
+        );
         detallesActualizados.push(
           await manager.save(DetalleTransaccion, detalle),
         );
@@ -3205,6 +3268,11 @@ export class TransaccionesService {
           id_metodo_pago: resolvedInput.id_metodo_pago,
           id_estado: estadoPendienteId,
         });
+        this.applyIngresoPagadoDefaultsToDetalleIfNeeded(
+          nuevoDetalle,
+          resolvedInput,
+          estadoPagadoId,
+        );
 
         detallesActualizados.push(
           await manager.save(DetalleTransaccion, nuevoDetalle),
