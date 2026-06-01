@@ -979,8 +979,8 @@ export class NotificacionesService implements OnModuleInit {
     `);
 
     await this.dataSource.query(`
-      INSERT INTO periodicidad (codigo, nombre_periodicidad, descripcion, estado)
-      SELECT data.codigo, data.nombre_periodicidad, data.descripcion, TRUE
+      INSERT INTO periodicidad (codigo, nombre_periodicidad, descripcion, estado, fecha_creacion)
+      SELECT data.codigo, data.nombre_periodicidad, data.descripcion, TRUE, NOW()
       FROM (
         VALUES
           ('mensual', 'Cada mes', 'Se repetira todos los meses en el mismo dia de pago.'),
