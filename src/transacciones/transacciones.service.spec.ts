@@ -274,6 +274,103 @@ describe("TransaccionesService", () => {
     );
   });
 
+  it("aplica el cambio masivo de estado sobre todas las cuotas", async () => {
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+    jest
+      .spyOn(serviceInternals, "todayAsLocalIsoDate")
+      .mockReturnValue("2026-06-03");
+    const manager = {
+      save: jest.fn().mockImplementation(async (_entity, value) => value),
+    } as unknown as EntityManager;
+    const baseDetalle = {
+      id: 100,
+      id_usuario: 1,
+      id_transaccion: 1,
+      fecha_pago: "2026-05-31",
+      fecha_programada: "2026-06-10",
+      fecha_inicio_interes: null,
+      interes_acumulado: "4.00",
+      interes_pagado: "1.00",
+      interes_pendiente: "3.00",
+      fecha_ultimo_calculo: "2026-05-31",
+      dias_interes: 5,
+      id_participante: 20,
+      id_usuario_relacionado: null,
+      monto: "40.00",
+      monto_pagado: "15.00",
+      numero_cuota: 1,
+      total_cuotas: 1,
+      id_tipo_transaccion: 1,
+      id_metodo_pago: 10,
+      id_estado: 4,
+      fecha_creacion: new Date("2026-05-01T10:00:00.000Z"),
+    } as DetalleTransaccion;
+
+    const pagados = await serviceInternals.applyManagedEstadoChangeToDetalles(
+      manager,
+      [{ ...baseDetalle }],
+      5,
+      3,
+      5,
+    );
+    expect(pagados[0]).toEqual(
+      expect.objectContaining({
+        id_estado: 5,
+        fecha_pago: "2026-06-03",
+        monto_pagado: "40.00",
+        interes_pagado: "4.00",
+        interes_pendiente: "0.00",
+      }),
+    );
+
+    const pendientes = await serviceInternals.applyManagedEstadoChangeToDetalles(
+      manager,
+      [{ ...baseDetalle }],
+      3,
+      3,
+      5,
+    );
+    expect(pendientes[0]).toEqual(
+      expect.objectContaining({
+        id_estado: 3,
+        fecha_pago: null,
+        monto_pagado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+      }),
+    );
+
+    const anulados = await serviceInternals.applyManagedEstadoChangeToDetalles(
+      manager,
+      [{ ...baseDetalle }],
+      2,
+      3,
+      5,
+    );
+    expect(anulados[0]).toEqual(
+      expect.objectContaining({
+        id_estado: 2,
+        fecha_pago: null,
+        monto_pagado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+      }),
+    );
+  });
+
   it("muestra el estado guardado de la transaccion aunque las cuotas vencidas sigan pendientes", async () => {
     const transaccionesRepository = createRepositoryMock<Transaccion>();
     const detalleRepository = createRepositoryMock<DetalleTransaccion>();

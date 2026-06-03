@@ -312,6 +312,12 @@ export class TransaccionesService {
       "PAGO PARCIAL",
     );
     const estadoPagado = await this.findEstadoByFlagAndName("T", "PAGADO");
+    const shouldApplyManagedEstadoChange = this.shouldApplyManagedEstadoChange(
+      visibleTransaccion.transaccion.id_estado,
+      updateTransaccionDto.id_estado ?? null,
+      estadoPendiente.id_estado,
+      estadoPagado.id_estado,
+    );
     const resolvedInput = await this.resolveTransaccionInput(
       updateTransaccionDto,
       idUsuario,
@@ -333,6 +339,7 @@ export class TransaccionesService {
         visibleTransaccion.detalles,
         visibleTransaccion.titularParticipante.id_participante,
         resolvedInput,
+        shouldApplyManagedEstadoChange,
       );
     }
     const estadoRegistroPendiente = await this.findEstadoByFlagAndName(
@@ -343,6 +350,11 @@ export class TransaccionesService {
       "R",
       "COMPLETADO",
     );
+    const estadoRegistroAnulado =
+      shouldApplyManagedEstadoChange &&
+      resolvedInput.id_estado === ESTADO_TRANSACCION_ANULADA_ID
+        ? await this.findEstadoByIdAndFlag(ESTADO_REGISTRO_ANULADO_ID, "R")
+        : null;
     let detallesGuardados: DetalleTransaccion[] = [];
 
     await this.dataSource.transaction(async (manager) => {
@@ -399,10 +411,34 @@ export class TransaccionesService {
           estadoPagado.id_estado,
         );
       }
+
+      if (shouldApplyManagedEstadoChange) {
+        detallesGuardados = await this.applyManagedEstadoChangeToDetalles(
+          manager,
+          detallesGuardados,
+          resolvedInput.id_estado,
+          estadoPendiente.id_estado,
+          estadoPagado.id_estado,
+        );
+      }
+
       visibleTransaccion.transaccion.id_estado = resolvedInput.id_estado;
+      visibleTransaccion.transaccion.id_estado_registro =
+        resolvedInput.id_estado === ESTADO_TRANSACCION_ANULADA_ID
+          ? (estadoRegistroAnulado?.id_estado ??
+            visibleTransaccion.transaccion.id_estado_registro)
+          : this.resolveEstadoRegistroDesdeDetalles(
+              Number(visibleTransaccion.transaccion.monto),
+              detallesGuardados,
+              estadoRegistroPendiente.id_estado,
+              estadoRegistroCompletado.id_estado,
+              visibleTransaccion.transaccion.id_estado_registro,
+            );
       visibleTransaccion.transaccion.saldo_pendiente = this.toNumericString(
         this.calculateTransaccionSaldoPendiente(detallesGuardados),
       );
+      visibleTransaccion.transaccion.fecha_ultimo_pago =
+        resolvedInput.id_estado === estadoPagado.id_estado ? new Date() : null;
       await manager.save(Transaccion, visibleTransaccion.transaccion);
     });
     await this.notificacionesService.syncPagoAsignadoNotificationsSafely({
@@ -797,15 +833,18 @@ export class TransaccionesService {
     );
 
     await this.dataSource.transaction(async (manager) => {
+      visibleTransaccion.detalles = await this.applyManagedEstadoChangeToDetalles(
+        manager,
+        visibleTransaccion.detalles,
+        estadoAnulada.id_estado,
+        ESTADO_TRANSACCION_PENDIENTE_ID,
+        ESTADO_TRANSACCION_PENDIENTE_ID,
+      );
       visibleTransaccion.transaccion.id_estado = estadoAnulada.id_estado;
-      visibleTransaccion.transaccion.id_estado_registro =
-        estadoRegistroAnulado.id_estado;
+      visibleTransaccion.transaccion.id_estado_registro = estadoRegistroAnulado.id_estado;
+      visibleTransaccion.transaccion.saldo_pendiente = this.toNumericString(0);
+      visibleTransaccion.transaccion.fecha_ultimo_pago = null;
       await manager.save(Transaccion, visibleTransaccion.transaccion);
-
-      visibleTransaccion.detalles.forEach((detalle) => {
-        detalle.id_estado = estadoAnulada.id_estado;
-      });
-      await manager.save(DetalleTransaccion, visibleTransaccion.detalles);
     });
 
     return this.findOneDetailed(id, idUsuario);
@@ -844,30 +883,15 @@ export class TransaccionesService {
     );
 
     await this.dataSource.transaction(async (manager) => {
-      visibleTransaccion.detalles.forEach((detalle) => {
-        if (this.shouldKeepDetalleAnuladoOnReactivation(detalle)) {
-          return;
-        }
+      visibleTransaccion.detalles = await this.applyManagedEstadoChangeToDetalles(
+        manager,
+        visibleTransaccion.detalles,
+        estadoPendiente.id_estado,
+        estadoPendiente.id_estado,
+        estadoPagado.id_estado,
+      );
 
-        detalle.id_estado = this.resolveReactivatedDetalleEstado(
-          visibleTransaccion.transaccion.id_tipo_transaccion,
-          detalle,
-          estadoPendiente.id_estado,
-          estadoPagoParcial.id_estado,
-          estadoPagado.id_estado,
-        );
-      });
-
-      await manager.save(DetalleTransaccion, visibleTransaccion.detalles);
-
-      visibleTransaccion.transaccion.id_estado =
-        this.resolveEstadoTransaccionDesdeDetalles(
-          visibleTransaccion.transaccion.id_tipo_transaccion,
-          visibleTransaccion.detalles,
-          estadoPendiente.id_estado,
-          estadoPagoParcial.id_estado,
-          estadoPagado.id_estado,
-        );
+      visibleTransaccion.transaccion.id_estado = estadoPendiente.id_estado;
       visibleTransaccion.transaccion.id_estado_registro =
         this.resolveEstadoRegistroDesdeDetalles(
           Number(visibleTransaccion.transaccion.monto),
@@ -879,6 +903,7 @@ export class TransaccionesService {
       visibleTransaccion.transaccion.saldo_pendiente = this.toNumericString(
         this.calculateTransaccionSaldoPendiente(visibleTransaccion.detalles),
       );
+      visibleTransaccion.transaccion.fecha_ultimo_pago = null;
 
       await manager.save(Transaccion, visibleTransaccion.transaccion);
     });
@@ -2186,6 +2211,98 @@ export class TransaccionesService {
       : estadoPendienteId;
   }
 
+  private shouldApplyManagedEstadoChange(
+    currentEstadoId: number,
+    nextEstadoId: number | null,
+    estadoPendienteId: number,
+    estadoPagadoId: number,
+  ): boolean {
+    if (nextEstadoId === null || nextEstadoId === currentEstadoId) {
+      return false;
+    }
+
+    return [
+      ESTADO_TRANSACCION_ANULADA_ID,
+      estadoPendienteId,
+      estadoPagadoId,
+    ].includes(nextEstadoId);
+  }
+
+  private async applyManagedEstadoChangeToDetalles(
+    manager: EntityManager,
+    detalles: DetalleTransaccion[],
+    nextEstadoId: number,
+    estadoPendienteId: number,
+    estadoPagadoId: number,
+  ): Promise<DetalleTransaccion[]> {
+    const currentDate = this.todayAsLocalIsoDate();
+
+    for (const detalle of detalles) {
+      if (
+        nextEstadoId !== ESTADO_TRANSACCION_ANULADA_ID &&
+        this.shouldKeepDetalleAnuladoOnReactivation(detalle)
+      ) {
+        continue;
+      }
+
+      if (nextEstadoId === ESTADO_TRANSACCION_ANULADA_ID) {
+        this.applyAnuladoEstadoToDetalle(detalle);
+        continue;
+      }
+
+      if (nextEstadoId === estadoPagadoId) {
+        this.applyPagadoEstadoToDetalle(detalle, currentDate, estadoPagadoId);
+        continue;
+      }
+
+      this.applyPendienteEstadoToDetalle(detalle, estadoPendienteId);
+    }
+
+    return manager.save(DetalleTransaccion, detalles);
+  }
+
+  private applyAnuladoEstadoToDetalle(detalle: DetalleTransaccion): void {
+    detalle.id_estado = ESTADO_TRANSACCION_ANULADA_ID;
+    detalle.monto_pagado = this.toNumericString(0);
+    detalle.interes_acumulado = this.toNumericString(0);
+    detalle.interes_pagado = this.toNumericString(0);
+    detalle.interes_pendiente = this.toNumericString(0);
+    detalle.dias_interes = 0;
+    detalle.fecha_pago = null;
+    detalle.fecha_ultimo_calculo = null;
+  }
+
+  private applyPendienteEstadoToDetalle(
+    detalle: DetalleTransaccion,
+    estadoPendienteId: number,
+  ): void {
+    detalle.id_estado = estadoPendienteId;
+    detalle.monto_pagado = this.toNumericString(0);
+    detalle.interes_acumulado = this.toNumericString(0);
+    detalle.interes_pagado = this.toNumericString(0);
+    detalle.interes_pendiente = this.toNumericString(0);
+    detalle.dias_interes = 0;
+    detalle.fecha_pago = null;
+    detalle.fecha_ultimo_calculo = null;
+  }
+
+  private applyPagadoEstadoToDetalle(
+    detalle: DetalleTransaccion,
+    currentDate: string,
+    estadoPagadoId: number,
+  ): void {
+    detalle.id_estado = estadoPagadoId;
+    detalle.fecha_pago = currentDate;
+    detalle.fecha_ultimo_calculo = currentDate;
+    detalle.dias_interes = 0;
+    detalle.monto_pagado = this.toNumericString(Number(detalle.monto ?? 0));
+    detalle.interes_pagado = this.toNumericString(
+      Number(detalle.interes_pagado ?? 0) + Number(detalle.interes_pendiente ?? 0),
+    );
+    detalle.interes_pendiente = this.toNumericString(0);
+    detalle.interes_acumulado = this.toNumericString(0);
+  }
+
   private async findVisibleFormaPago(
     idFormaPago: number,
     idUsuario: number,
@@ -2918,6 +3035,7 @@ export class TransaccionesService {
     existingDetalles: DetalleTransaccion[],
     titularParticipanteId: number,
     resolvedInput: ResolvedTransaccionInput,
+    allowEstadoMasivoChange = false,
   ): void {
     if (resolvedInput.fecha !== existingTransaccion.fecha) {
       throw new BadRequestException(
@@ -2967,7 +3085,10 @@ export class TransaccionesService {
       );
     }
 
-    if (resolvedInput.id_estado !== existingTransaccion.id_estado) {
+    if (
+      !allowEstadoMasivoChange &&
+      resolvedInput.id_estado !== existingTransaccion.id_estado
+    ) {
       throw new BadRequestException(
         "No puedes cambiar el estado de una transaccion que ya tiene cuotas con pagos aplicados",
       );
