@@ -16,6 +16,7 @@ import { Periodicidad } from './entities/periodicidad.entity';
 
 const NOTIFICACION_TIPO_PAGO_ASIGNADO = 'PAGO_ASIGNADO';
 const NOTIFICACION_TIPO_COBRO_INGRESADO = 'COBRO_INGRESADO';
+const NOTIFICACION_TIPO_PAGO_RECIBIDO = 'PAGO_RECIBIDO';
 
 type NotificacionResponse = {
   id_notificacion: number;
@@ -80,6 +81,18 @@ type CobroIngresadoNotificationInput = {
   detalles: Array<{
     id_participante: number;
     id_usuario_relacionado: number | null;
+    monto: string | number;
+  }>;
+};
+
+type PagoRecibidoNotificationInput = {
+  idUsuarioOrigen: number;
+  idUsuarioDestino: number;
+  idTransaccion: number;
+  descripcion: string | null;
+  fecha: string;
+  detalles: Array<{
+    id_participante: number;
     monto: string | number;
   }>;
 };
@@ -375,6 +388,22 @@ export class NotificacionesService implements OnModuleInit {
     }
   }
 
+  async createPagoRecibidoNotificationsSafely(
+    input: PagoRecibidoNotificationInput,
+  ): Promise<void> {
+    try {
+      await this.ensureSchemaReady();
+      await this.notificacionesRepository.manager.transaction(async (manager) => {
+        await this.createPagoRecibidoNotifications(manager, input);
+      });
+    } catch (error) {
+      console.warn(
+        'No se pudieron crear las notificaciones de pago recibido:',
+        error,
+      );
+    }
+  }
+
   async syncPagoAsignadoNotifications(
     manager: EntityManager,
     input: PagoAsignadoNotificationInput,
@@ -531,6 +560,81 @@ export class NotificacionesService implements OnModuleInit {
     await manager.save(Notificacion, notifications);
   }
 
+  async createPagoRecibidoNotifications(
+    manager: EntityManager,
+    input: PagoRecibidoNotificationInput,
+  ): Promise<void> {
+    if (
+      input.idUsuarioDestino === input.idUsuarioOrigen ||
+      input.detalles.length === 0
+    ) {
+      return;
+    }
+
+    const detallesValidos = input.detalles.filter(
+      (detalle) => this.toCents(Number(detalle.monto)) > 0,
+    );
+
+    if (detallesValidos.length === 0) {
+      return;
+    }
+
+    await manager.delete(Notificacion, {
+      id_transaccion: input.idTransaccion,
+      id_usuario_destino: input.idUsuarioDestino,
+      id_usuario_origen: input.idUsuarioOrigen,
+      tipo: NOTIFICACION_TIPO_PAGO_RECIBIDO,
+    });
+
+    const participantes = await manager.find(Participante, {
+      where: {
+        id_participante: In(
+          Array.from(new Set(detallesValidos.map((detalle) => detalle.id_participante))),
+        ),
+      },
+    });
+    const participantesMap = new Map(
+      participantes.map((participante) => [
+        participante.id_participante,
+        participante.nombre_participante,
+      ]),
+    );
+    const participantesPagadores = new Set<string>();
+    let montoCentavos = 0;
+
+    for (const detalle of detallesValidos) {
+      montoCentavos += this.toCents(Number(detalle.monto));
+      const participanteNombre = participantesMap.get(detalle.id_participante)?.trim();
+
+      if (participanteNombre) {
+        participantesPagadores.add(participanteNombre);
+      }
+    }
+
+    if (montoCentavos <= 0) {
+      return;
+    }
+
+    const referenciaTransaccion =
+      input.descripcion?.trim() || `transaccion del ${input.fecha}`;
+    const notification = manager.create(Notificacion, {
+      id_usuario_destino: input.idUsuarioDestino,
+      id_usuario_origen: input.idUsuarioOrigen,
+      id_transaccion: input.idTransaccion,
+      tipo: NOTIFICACION_TIPO_PAGO_RECIBIDO,
+      titulo: 'Pago recibido',
+      mensaje: this.buildPagoRecibidoMessage(
+        referenciaTransaccion,
+        participantesPagadores,
+        montoCentavos,
+      ),
+      leida: false,
+      fecha_leida: null,
+    });
+
+    await manager.save(Notificacion, notification);
+  }
+
   private buildPagoAsignadoMessage(
     referenciaTransaccion: string,
     participantes: Set<string>,
@@ -557,6 +661,20 @@ export class NotificacionesService implements OnModuleInit {
         : '';
 
     return `Se ingreso un cobro de $${monto}${participantesTexto} en ${referenciaTransaccion}.`;
+  }
+
+  private buildPagoRecibidoMessage(
+    referenciaTransaccion: string,
+    participantes: Set<string>,
+    montoCentavos: number,
+  ): string {
+    const monto = this.centsToAmount(montoCentavos).toFixed(2);
+    const participantesTexto =
+      participantes.size > 0
+        ? ` de ${Array.from(participantes).join(', ')}`
+        : '';
+
+    return `Se recibio un pago de $${monto}${participantesTexto} en ${referenciaTransaccion}.`;
   }
 
   private toResponse(notification: Notificacion): NotificacionResponse {

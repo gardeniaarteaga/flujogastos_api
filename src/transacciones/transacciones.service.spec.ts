@@ -1083,4 +1083,118 @@ describe("TransaccionesService", () => {
     );
     expect(applyPagosSpy).not.toHaveBeenCalled();
   });
+
+  it("crea notificacion de pago recibido cuando un participante paga una transaccion compartida ajena", async () => {
+    const manager = {
+      save: jest.fn(async (_entity: unknown, value: unknown) => value),
+    };
+    const dataSource = {
+      transaction: jest.fn(
+        async (callback: (managerArg: typeof manager) => Promise<void>) =>
+          callback(manager),
+      ),
+    };
+    const notificacionesService = {
+      syncPagoAsignadoNotificationsSafely: jest.fn().mockResolvedValue(undefined),
+      createCobroIngresadoNotificationsSafely: jest.fn().mockResolvedValue(undefined),
+      createPagoRecibidoNotificationsSafely: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const service = new TransaccionesService(
+      dataSource as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      notificacionesService as never,
+    );
+    const serviceInternals = service as any;
+
+    jest.spyOn(serviceInternals, "findAccessibleTransaccion").mockResolvedValue({
+      transaccion: {
+        id_transaccion: 77,
+        id_usuario: 1,
+        fecha: "2026-06-10",
+        descripcion: "Pago compartido de prueba",
+        pagocompartido: true,
+        id_tipo_transaccion: 1,
+        saldo_pendiente: "25.00",
+      },
+      detalles: [
+        {
+          id: 501,
+          id_participante: 30,
+          id_usuario_relacionado: 9,
+          monto: "25.00",
+          monto_pagado: "0.00",
+          interes_pagado: "0.00",
+          interes_pendiente: "0.00",
+          id_estado: 3,
+          id_tipo_transaccion: 1,
+          fecha_pago: null,
+        },
+      ],
+      detallesCompletos: [
+        {
+          id: 501,
+          id_participante: 30,
+          id_usuario_relacionado: 9,
+          monto: "25.00",
+          monto_pagado: "0.00",
+          interes_pagado: "0.00",
+          interes_pendiente: "0.00",
+          id_estado: 3,
+          id_tipo_transaccion: 1,
+          fecha_pago: null,
+        },
+      ],
+      isOwner: false,
+    });
+    jest
+      .spyOn(serviceInternals, "findEstadoByFlagAndName")
+      .mockImplementation(async (...args: unknown[]) => {
+        const [flag, nombre] = args as [string, string];
+        const estados = new Map([
+          ["T:PENDIENTE", { id_estado: 3 }],
+          ["T:PAGO PARCIAL", { id_estado: 4 }],
+          ["T:PAGADO", { id_estado: 5 }],
+        ]);
+        return estados.get(`${flag}:${nombre}`) as { id_estado: number };
+      });
+    jest
+      .spyOn(serviceInternals, "findOneDetailed")
+      .mockResolvedValue({ id_transaccion: 77 });
+    jest
+      .spyOn(serviceInternals, "todayAsLocalIsoDate")
+      .mockReturnValue("2026-06-10");
+
+    await service.applyPagos(
+      77,
+      {
+        pagos: [{ id_detalle: 501, monto: 25 }],
+      } as never,
+      9,
+    );
+
+    expect(
+      notificacionesService.createPagoRecibidoNotificationsSafely,
+    ).toHaveBeenCalledWith({
+      idUsuarioOrigen: 9,
+      idUsuarioDestino: 1,
+      idTransaccion: 77,
+      descripcion: "Pago compartido de prueba",
+      fecha: "2026-06-10",
+      detalles: [
+        {
+          id_participante: 30,
+          monto: 25,
+        },
+      ],
+    });
+  });
 });

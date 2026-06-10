@@ -650,6 +650,23 @@ export class TransaccionesService {
       detalles: notificacionesCobro,
     });
 
+    if (
+      visibleTransaccion.transaccion.pagocompartido &&
+      visibleTransaccion.transaccion.id_usuario !== idUsuario
+    ) {
+      await this.notificacionesService.createPagoRecibidoNotificationsSafely({
+        idUsuarioOrigen: idUsuario,
+        idUsuarioDestino: visibleTransaccion.transaccion.id_usuario,
+        idTransaccion: id,
+        descripcion: visibleTransaccion.transaccion.descripcion,
+        fecha: visibleTransaccion.transaccion.fecha,
+        detalles: notificacionesCobro.map((detalle) => ({
+          id_participante: detalle.id_participante,
+          monto: detalle.monto,
+        })),
+      });
+    }
+
     return this.findOneDetailed(id, idUsuario);
   }
 
