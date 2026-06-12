@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+﻿import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 
@@ -117,10 +117,13 @@ export class FormasPagoService {
   }
 
   async update(id: number, updateFormaPagoDto: UpdateFormaPagoDto, idUsuario: number) {
-    const forma = await this.findOwned(id, idUsuario);
     const adminUserIds = await this.getAdminUserIds();
+    const currentUserIsAdmin = adminUserIds.includes(idUsuario);
+    const forma = currentUserIsAdmin
+      ? await this.findVisible(id, idUsuario)
+      : await this.findOwned(id, idUsuario);
 
-    if (isAdminOwned(adminUserIds, forma.id_usuario)) {
+    if (!currentUserIsAdmin && isAdminOwned(adminUserIds, forma.id_usuario)) {
       throw new ForbiddenException(
         'Los metodos de pago creados por un administrador no se pueden editar',
       );
@@ -196,10 +199,13 @@ export class FormasPagoService {
   }
 
   async remove(id: number, idUsuario: number) {
-    const forma = await this.findOwned(id, idUsuario);
     const adminUserIds = await this.getAdminUserIds();
+    const currentUserIsAdmin = adminUserIds.includes(idUsuario);
+    const forma = currentUserIsAdmin
+      ? await this.findVisible(id, idUsuario)
+      : await this.findOwned(id, idUsuario);
 
-    if (isAdminOwned(adminUserIds, forma.id_usuario)) {
+    if (!currentUserIsAdmin && isAdminOwned(adminUserIds, forma.id_usuario)) {
       throw new ForbiddenException(
         'Los metodos de pago creados por un administrador no se pueden eliminar',
       );
@@ -461,3 +467,4 @@ export class FormasPagoService {
     };
   }
 }
+

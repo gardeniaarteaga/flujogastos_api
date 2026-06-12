@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+﻿import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -21,7 +21,7 @@ export class CreateTransaccionDto {
   fecha!: string;
 
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
+  @Min(0)
   monto!: number;
 
   @IsInt()
@@ -49,6 +49,10 @@ export class CreateTransaccionDto {
   @IsString()
   @MaxLength(250)
   descripcion?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  pago_variable?: boolean;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -85,3 +89,7 @@ export class CreateTransaccionDto {
   @Type(() => CreateDetalleTransaccionDto)
   participantes_detalle?: CreateDetalleTransaccionDto[];
 }
+
+
+
+

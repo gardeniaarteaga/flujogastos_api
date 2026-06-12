@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+﻿import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -17,7 +17,7 @@ export class CreateDetalleTransaccionDto {
   id_participante!: number;
 
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
+  @Min(0)
   monto!: number;
 
   @IsOptional()
@@ -32,3 +32,5 @@ export class CreateDetalleTransaccionDto {
   @Type(() => CuotaProgramadaDto)
   cuotas?: CuotaProgramadaDto[];
 }
+
+

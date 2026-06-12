@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -103,6 +103,7 @@ type ResolvedTransaccionInput = {
   calcula_interes: boolean;
   cuotas_sin_intereses: boolean;
   titular_cuota_unica_pagada: boolean;
+  pago_variable: boolean;
   fecha_inicio_interes: string | null;
   monto: number;
   intereses: number;
@@ -986,6 +987,7 @@ export class TransaccionesService {
         existingTransaccion?.cuotas_sin_intereses ??
         false,
       titular_cuota_unica_pagada: dto.titular_cuota_unica_pagada ?? false,
+      pago_variable: dto.pago_variable ?? false,
       fecha_inicio_interes: null,
       monto: montoTitular,
       intereses:
@@ -1082,6 +1084,8 @@ export class TransaccionesService {
       resolvedInput.participantes_detalle,
     );
 
+    this.validateMontoMinimoPermitido(resolvedInput);
+
     if (resolvedInput.pagocompartido) {
       await this.findVisibleParticipantes(
         resolvedInput.participantes_detalle,
@@ -1174,7 +1178,8 @@ export class TransaccionesService {
       resolvedInput.monto,
       resolvedInput.participantes_detalle,
     );
-    const titularTieneParticipacion = this.toCents(montoTitular) > 0;
+    const titularTieneParticipacion =
+      resolvedInput.pago_variable || this.toCents(montoTitular) > 0;
     const participantesRelacionados =
       resolvedInput.participantes_detalle.length > 0
         ? await manager.find(Participante, {
@@ -1941,6 +1946,30 @@ export class TransaccionesService {
     }
   }
 
+  private validateMontoMinimoPermitido(
+    resolvedInput: ResolvedTransaccionInput,
+  ): void {
+    if (resolvedInput.pago_variable) {
+      return;
+    }
+
+    if (this.toCents(resolvedInput.monto) <= 0) {
+      throw new BadRequestException(
+        'El monto total de la transaccion debe ser mayor que cero',
+      );
+    }
+
+    if (
+      resolvedInput.participantes_detalle.some(
+        (detalle) => this.toCents(detalle.monto) <= 0,
+      )
+    ) {
+      throw new BadRequestException(
+        'Cada participante debe tener un monto mayor que cero',
+      );
+    }
+  }
+
   private validateMontoCubiertoPorParticipantes(
     montoTotal: number,
     participantesDetalle: ResolvedDetalleInput[],
@@ -2131,6 +2160,10 @@ export class TransaccionesService {
   private isRegistroCompletoDesdeIngreso(
     resolvedInput: ResolvedTransaccionInput,
   ): boolean {
+    if (resolvedInput.pago_variable) {
+      return false;
+    }
+
     const montoTitular = this.calculateTitularMonto(
       resolvedInput.monto,
       resolvedInput.participantes_detalle,
@@ -3575,3 +3608,8 @@ export class TransaccionesService {
     return `${year}-${month}-${day}`;
   }
 }
+
+
+
+
+
