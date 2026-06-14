@@ -17,6 +17,9 @@ export class Transaccion {
   @Column({ name: 'id_tipo_transaccion', type: 'int' })
   id_tipo_transaccion!: number;
 
+  @Column({ name: 'id_tipo_cuota', type: 'int', default: 1 })
+  id_tipo_cuota!: number;
+
   @Column({ name: 'id_metodo_pago', type: 'int' })
   id_metodo_pago!: number;
 
@@ -56,6 +59,7 @@ export class Transaccion {
   @Column({ name: 'cuotas_sin_intereses', type: 'boolean', default: false })
   cuotas_sin_intereses!: boolean;
 
+
   @Column({ name: 'fecha_ultimo_pago', type: 'timestamp', nullable: true })
   fecha_ultimo_pago!: Date | null;
 
@@ -65,3 +69,4 @@ export class Transaccion {
   @Column({ name: 'pagocompartido', type: 'boolean' })
   pagocompartido!: boolean;
 }
+

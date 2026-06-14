@@ -63,6 +63,15 @@ export class DetalleTransaccion {
   monto!: string;
 
   @Column({
+    name: 'porcentaje_base',
+    type: 'numeric',
+    precision: 12,
+    scale: 6,
+    nullable: true,
+  })
+  porcentaje_base!: string | null;
+
+  @Column({
     name: 'monto_pagado',
     type: 'numeric',
     precision: 12,

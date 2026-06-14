@@ -5,6 +5,7 @@ import {
   IsInt,
   IsNumber,
   IsOptional,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -19,6 +20,12 @@ export class CreateDetalleTransaccionDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   monto!: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 6 })
+  @Min(0)
+  @Max(100)
+  porcentaje?: number | null;
 
   @IsOptional()
   @IsInt()

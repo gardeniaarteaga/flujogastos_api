@@ -1,4 +1,4 @@
-﻿import { Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -16,6 +16,7 @@ import {
 import { CreateDetalleTransaccionDto } from './create-detalle-transaccion.dto';
 import { CuotaProgramadaDto } from './cuota-programada.dto';
 
+
 export class CreateTransaccionDto {
   @IsDateString()
   fecha!: string;
@@ -27,6 +28,11 @@ export class CreateTransaccionDto {
   @IsInt()
   @Min(1)
   id_tipo_transaccion!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  id_tipo_cuota?: number;
 
   @IsInt()
   @Min(1)
@@ -89,6 +95,8 @@ export class CreateTransaccionDto {
   @Type(() => CreateDetalleTransaccionDto)
   participantes_detalle?: CreateDetalleTransaccionDto[];
 }
+
+
 
 
 

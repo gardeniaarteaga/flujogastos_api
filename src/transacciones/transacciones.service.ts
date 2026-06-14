@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -27,6 +27,7 @@ import { Transaccion } from "./entities/transaccion.entity";
 
 const DETALLE_TIPO_TRANSACCION_TITULAR_ID = 1;
 const DETALLE_TIPO_TRANSACCION_PARTICIPANTE_ID = 2;
+const TIPO_CUOTA_FIJA_ID = 1;
 const ESTADO_TRANSACCION_ANULADA_ID = 2;
 const ESTADO_TRANSACCION_PENDIENTE_ID = 3;
 const ESTADO_TRANSACCION_PAGO_PARCIAL_ID = 4;
@@ -64,6 +65,7 @@ type ResolvedCuotaInput = {
 type ResolvedDetalleInput = {
   id_participante: number;
   monto: number;
+  porcentaje: number | null;
   cantidad_cuotas: number;
   cuotas: ResolvedCuotaInput[];
 };
@@ -78,6 +80,7 @@ type TransaccionResponse = {
   tasa_interes_anual: number | null;
   saldo_pendiente: number;
   id_tipo_transaccion: number;
+  id_tipo_cuota: number;
   nombre_tipo_transaccion: string | null;
   id_metodo_pago: number;
   nombre_forma_pago: string | null;
@@ -108,6 +111,7 @@ type ResolvedTransaccionInput = {
   monto: number;
   intereses: number;
   id_tipo_transaccion: number;
+  id_tipo_cuota: number;
   id_metodo_pago: number;
   id_categoria: number;
   id_subcategoria: number | null;
@@ -195,6 +199,7 @@ export class TransaccionesService {
         fecha: resolvedInput.fecha,
         monto: this.toNumericString(resolvedInput.monto),
         id_tipo_transaccion: resolvedInput.id_tipo_transaccion,
+        id_tipo_cuota: resolvedInput.id_tipo_cuota,
         id_metodo_pago: resolvedInput.id_metodo_pago,
         id_categoria: resolvedInput.id_categoria,
         id_subcategoria: resolvedInput.id_subcategoria,
@@ -365,6 +370,8 @@ export class TransaccionesService {
       );
       visibleTransaccion.transaccion.id_tipo_transaccion =
         resolvedInput.id_tipo_transaccion;
+      visibleTransaccion.transaccion.id_tipo_cuota =
+        resolvedInput.id_tipo_cuota;
       visibleTransaccion.transaccion.id_metodo_pago =
         resolvedInput.id_metodo_pago;
       visibleTransaccion.transaccion.id_categoria = resolvedInput.id_categoria;
@@ -961,6 +968,10 @@ export class TransaccionesService {
             (detalle) => ({
               id_participante: detalle.id_participante,
               monto: detalle.monto,
+              porcentaje:
+                detalle.porcentaje !== undefined
+                  ? Number(detalle.porcentaje)
+                  : (participantesExistentesMap.get(detalle.id_participante)?.porcentaje ?? null),
               cuotas: this.resolveCuotasInput(
                 detalle.monto,
                 detalle.cuotas,
@@ -997,6 +1008,10 @@ export class TransaccionesService {
         dto.id_tipo_transaccion ??
         existingTransaccion?.id_tipo_transaccion ??
         1,
+      id_tipo_cuota:
+        dto.id_tipo_cuota ??
+        existingTransaccion?.id_tipo_cuota ??
+        TIPO_CUOTA_FIJA_ID,
       id_metodo_pago:
         dto.id_metodo_pago ?? existingTransaccion?.id_metodo_pago ?? 0,
       id_categoria: dto.id_categoria ?? existingTransaccion?.id_categoria ?? 0,
@@ -1219,6 +1234,7 @@ export class TransaccionesService {
             estadoInicialDetalleId,
             null,
             fechaInicioInteres,
+            this.resolveTitularPorcentajeBase(resolvedInput),
             resolvedInput.cuotas_sin_intereses,
           )
         : []),
@@ -1234,6 +1250,7 @@ export class TransaccionesService {
           estadoInicialDetalleId,
           participantesRelacionadosMap.get(detalle.id_participante) ?? null,
           fechaInicioInteres,
+          detalle.porcentaje,
           resolvedInput.cuotas_sin_intereses,
         ),
       ),
@@ -1582,7 +1599,10 @@ export class TransaccionesService {
           interes_pendiente: interesPendienteDetalle,
           saldo_pendiente: saldoPendiente,
           porcentaje:
-            Number(transaccion.monto) > 0
+            detalle.porcentaje_base !== null &&
+            detalle.porcentaje_base !== undefined
+              ? Number(detalle.porcentaje_base)
+              : Number(transaccion.monto) > 0
               ? Number(
                   ((montoDetalle / Number(transaccion.monto)) * 100).toFixed(2),
                 )
@@ -1675,6 +1695,7 @@ export class TransaccionesService {
             : null,
         saldo_pendiente: saldoPendienteVisible,
         id_tipo_transaccion: transaccion.id_tipo_transaccion,
+        id_tipo_cuota: transaccion.id_tipo_cuota,
         nombre_tipo_transaccion: tipoTransaccion?.nombre ?? null,
         id_metodo_pago: transaccion.id_metodo_pago,
         nombre_forma_pago: formaPago?.nombre_metodo ?? null,
@@ -1747,6 +1768,7 @@ export class TransaccionesService {
       );
     }
   }
+
 
   private validateApplyPagosRequest(
     applyPagosDto: ApplyPagosTransaccionDto,
@@ -2681,6 +2703,29 @@ export class TransaccionesService {
     return this.centsToAmount(montoTotalCentavos - montoParticipantesCentavos);
   }
 
+  private resolveTitularPorcentajeBase(
+    resolvedInput: ResolvedTransaccionInput,
+  ): number | null {
+    const porcentajesParticipantes = resolvedInput.participantes_detalle
+      .map((detalle) =>
+        detalle.porcentaje === null || detalle.porcentaje === undefined
+          ? null
+          : Number(detalle.porcentaje),
+      )
+      .filter((value): value is number => value !== null && !Number.isNaN(value));
+
+    if (porcentajesParticipantes.length === 0) {
+      return resolvedInput.pagocompartido ? null : 100;
+    }
+
+    const porcentajeParticipantes = porcentajesParticipantes.reduce(
+      (sum, value) => sum + value,
+      0,
+    );
+
+    return Number(Math.max(0, 100 - porcentajeParticipantes).toFixed(6));
+  }
+
   private buildDetalleEntitiesForCuotas(
     manager: EntityManager,
     idUsuario: number,
@@ -2692,6 +2737,7 @@ export class TransaccionesService {
     idEstado: number,
     idUsuarioRelacionado: number | null,
     fechaInicioInteres: string | null,
+    porcentajeBase: number | null,
     cuotasSinIntereses: boolean,
   ): DetalleTransaccion[] {
     return cuotas.map((cuota, index) =>
@@ -2710,6 +2756,10 @@ export class TransaccionesService {
         id_participante: idParticipante,
         id_usuario_relacionado: idUsuarioRelacionado,
         monto: this.toNumericString(cuota.monto),
+        porcentaje_base:
+          porcentajeBase === null || porcentajeBase === undefined
+            ? null
+            : this.toScaledNumericString(Number(porcentajeBase), 6),
         monto_pagado: this.toNumericString(0),
         numero_cuota: index + 1,
         total_cuotas: cuotas.length,
@@ -2883,6 +2933,11 @@ export class TransaccionesService {
           this.toCents(existente.monto) + this.toCents(Number(detalle.monto)),
         );
         existente.cantidad_cuotas += 1;
+        existente.porcentaje =
+          detalle.porcentaje_base !== null &&
+          detalle.porcentaje_base !== undefined
+            ? Number(detalle.porcentaje_base)
+            : existente.porcentaje;
         existente.cuotas.push({
           monto: Number(detalle.monto),
           fecha_programada: this.normalizeOptionalIsoDate(
@@ -2895,6 +2950,11 @@ export class TransaccionesService {
       detallesPorParticipante.set(detalle.id_participante, {
         id_participante: detalle.id_participante,
         monto: Number(detalle.monto),
+        porcentaje:
+          detalle.porcentaje_base !== null &&
+          detalle.porcentaje_base !== undefined
+            ? Number(detalle.porcentaje_base)
+            : null,
         cantidad_cuotas: 1,
         cuotas: [
           {
@@ -3225,6 +3285,22 @@ export class TransaccionesService {
     return cuotasPorParticipante;
   }
 
+  private getSubmittedPorcentajeBaseForParticipante(
+    resolvedInput: ResolvedTransaccionInput,
+    titularParticipanteId: number,
+    idParticipante: number,
+  ): number | null {
+    if (idParticipante === titularParticipanteId) {
+      return this.resolveTitularPorcentajeBase(resolvedInput);
+    }
+
+    return (
+      resolvedInput.participantes_detalle.find(
+        (detalle) => detalle.id_participante === idParticipante,
+      )?.porcentaje ?? null
+    );
+  }
+
   private buildDetalleMapByParticipante(
     detalles: DetalleTransaccion[],
   ): Map<number, DetalleTransaccion[]> {
@@ -3336,6 +3412,12 @@ export class TransaccionesService {
       detallesParticipante,
     ] of existingByParticipante.entries()) {
       const cuotasEnviadas = submittedByParticipante.get(idParticipante) ?? [];
+      const porcentajeBaseParticipante =
+        this.getSubmittedPorcentajeBaseForParticipante(
+          resolvedInput,
+          titularParticipanteId,
+          idParticipante,
+        );
       const plan = this.buildDetalleUpdatePlan(
         detallesParticipante,
         cuotasEnviadas,
@@ -3355,6 +3437,11 @@ export class TransaccionesService {
         if (this.hasAppliedPaymentOnDetalle(detalle)) {
           detalle.monto = this.toNumericString(cuotaEnviada.monto);
           detalle.fecha_programada = cuotaEnviada.fecha_programada;
+          detalle.porcentaje_base =
+            porcentajeBaseParticipante === null ||
+            porcentajeBaseParticipante === undefined
+              ? null
+              : this.toScaledNumericString(porcentajeBaseParticipante, 6);
           detalle.fecha_inicio_interes = this.resolveFechaInicioInteresRestante(
             detalle.fecha_ultimo_calculo,
             resolvedInput.fecha_inicio_interes,
@@ -3371,6 +3458,11 @@ export class TransaccionesService {
 
         detalle.monto = this.toNumericString(cuotaEnviada.monto);
         detalle.fecha_programada = cuotaEnviada.fecha_programada;
+        detalle.porcentaje_base =
+          porcentajeBaseParticipante === null ||
+          porcentajeBaseParticipante === undefined
+            ? null
+            : this.toScaledNumericString(porcentajeBaseParticipante, 6);
         detalle.fecha_inicio_interes = this.resolveFechaInicioInteresRestante(
           detalle.fecha_ultimo_calculo,
           resolvedInput.fecha_inicio_interes,
@@ -3432,6 +3524,11 @@ export class TransaccionesService {
           id_participante: detalleBase.id_participante,
           id_usuario_relacionado: detalleBase.id_usuario_relacionado,
           monto: this.toNumericString(cuotaEnviada.monto),
+          porcentaje_base:
+            porcentajeBaseParticipante === null ||
+            porcentajeBaseParticipante === undefined
+              ? null
+              : this.toScaledNumericString(porcentajeBaseParticipante, 6),
           monto_pagado: this.toNumericString(0),
           numero_cuota: plan.activeExistingDetalles.length + index + 1,
           total_cuotas: totalCuotasActivas,
@@ -3569,6 +3666,10 @@ export class TransaccionesService {
     return value.toFixed(2);
   }
 
+  private toScaledNumericString(value: number, scale: number): string {
+    return Number(value).toFixed(scale);
+  }
+
   private toCents(value: number): number {
     return Math.round(value * 100);
   }
@@ -3608,6 +3709,12 @@ export class TransaccionesService {
     return `${year}-${month}-${day}`;
   }
 }
+
+
+
+
+
+
 
 
 
