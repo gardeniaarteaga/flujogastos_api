@@ -1599,10 +1599,7 @@ export class TransaccionesService {
           interes_pendiente: interesPendienteDetalle,
           saldo_pendiente: saldoPendiente,
           porcentaje:
-            detalle.porcentaje_base !== null &&
-            detalle.porcentaje_base !== undefined
-              ? Number(detalle.porcentaje_base)
-              : Number(transaccion.monto) > 0
+            Number(transaccion.monto) > 0
               ? Number(
                   ((montoDetalle / Number(transaccion.monto)) * 100).toFixed(2),
                 )
@@ -2756,10 +2753,7 @@ export class TransaccionesService {
         id_participante: idParticipante,
         id_usuario_relacionado: idUsuarioRelacionado,
         monto: this.toNumericString(cuota.monto),
-        porcentaje_base:
-          porcentajeBase === null || porcentajeBase === undefined
-            ? null
-            : this.toScaledNumericString(Number(porcentajeBase), 6),
+
         monto_pagado: this.toNumericString(0),
         numero_cuota: index + 1,
         total_cuotas: cuotas.length,
@@ -2933,11 +2927,7 @@ export class TransaccionesService {
           this.toCents(existente.monto) + this.toCents(Number(detalle.monto)),
         );
         existente.cantidad_cuotas += 1;
-        existente.porcentaje =
-          detalle.porcentaje_base !== null &&
-          detalle.porcentaje_base !== undefined
-            ? Number(detalle.porcentaje_base)
-            : existente.porcentaje;
+
         existente.cuotas.push({
           monto: Number(detalle.monto),
           fecha_programada: this.normalizeOptionalIsoDate(
@@ -2950,11 +2940,7 @@ export class TransaccionesService {
       detallesPorParticipante.set(detalle.id_participante, {
         id_participante: detalle.id_participante,
         monto: Number(detalle.monto),
-        porcentaje:
-          detalle.porcentaje_base !== null &&
-          detalle.porcentaje_base !== undefined
-            ? Number(detalle.porcentaje_base)
-            : null,
+        porcentaje: null,
         cantidad_cuotas: 1,
         cuotas: [
           {
@@ -3437,11 +3423,7 @@ export class TransaccionesService {
         if (this.hasAppliedPaymentOnDetalle(detalle)) {
           detalle.monto = this.toNumericString(cuotaEnviada.monto);
           detalle.fecha_programada = cuotaEnviada.fecha_programada;
-          detalle.porcentaje_base =
-            porcentajeBaseParticipante === null ||
-            porcentajeBaseParticipante === undefined
-              ? null
-              : this.toScaledNumericString(porcentajeBaseParticipante, 6);
+
           detalle.fecha_inicio_interes = this.resolveFechaInicioInteresRestante(
             detalle.fecha_ultimo_calculo,
             resolvedInput.fecha_inicio_interes,
@@ -3458,11 +3440,7 @@ export class TransaccionesService {
 
         detalle.monto = this.toNumericString(cuotaEnviada.monto);
         detalle.fecha_programada = cuotaEnviada.fecha_programada;
-        detalle.porcentaje_base =
-          porcentajeBaseParticipante === null ||
-          porcentajeBaseParticipante === undefined
-            ? null
-            : this.toScaledNumericString(porcentajeBaseParticipante, 6);
+
         detalle.fecha_inicio_interes = this.resolveFechaInicioInteresRestante(
           detalle.fecha_ultimo_calculo,
           resolvedInput.fecha_inicio_interes,
@@ -3524,11 +3502,7 @@ export class TransaccionesService {
           id_participante: detalleBase.id_participante,
           id_usuario_relacionado: detalleBase.id_usuario_relacionado,
           monto: this.toNumericString(cuotaEnviada.monto),
-          porcentaje_base:
-            porcentajeBaseParticipante === null ||
-            porcentajeBaseParticipante === undefined
-              ? null
-              : this.toScaledNumericString(porcentajeBaseParticipante, 6),
+
           monto_pagado: this.toNumericString(0),
           numero_cuota: plan.activeExistingDetalles.length + index + 1,
           total_cuotas: totalCuotasActivas,
