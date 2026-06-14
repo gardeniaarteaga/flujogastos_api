@@ -12,6 +12,7 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { DetalleTransaccion } from './entities/detalle-transaccion.entity';
 import { Transaccion } from './entities/transaccion.entity';
 import { TransaccionesController } from './transacciones.controller';
+import { TransaccionesSchemaBootstrapService } from './transacciones-schema-bootstrap.service';
 import { TransaccionesService } from './transacciones.service';
 
 @Module({
@@ -30,6 +31,6 @@ import { TransaccionesService } from './transacciones.service';
     ]),
   ],
   controllers: [TransaccionesController],
-  providers: [TransaccionesService],
+  providers: [TransaccionesService, TransaccionesSchemaBootstrapService],
 })
 export class TransaccionesModule {}
