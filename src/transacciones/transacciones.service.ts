@@ -849,30 +849,21 @@ export class TransaccionesService {
     }
   }
 
-  async cancel(id: number, idUsuario: number): Promise<TransaccionResponse> {
+  async cancel(
+    id: number,
+    idUsuario: number,
+  ): Promise<{ message: string; id_transaccion: number }> {
     const visibleTransaccion = await this.findOwnedTransaccion(id, idUsuario);
-    const estadoAnulada = await this.findEstado(ESTADO_TRANSACCION_ANULADA_ID);
-    const estadoRegistroAnulado = await this.findEstadoByIdAndFlag(
-      ESTADO_REGISTRO_ANULADO_ID,
-      "R",
-    );
 
     await this.dataSource.transaction(async (manager) => {
-      visibleTransaccion.detalles = await this.applyManagedEstadoChangeToDetalles(
-        manager,
-        visibleTransaccion.detalles,
-        estadoAnulada.id_estado,
-        ESTADO_TRANSACCION_PENDIENTE_ID,
-        ESTADO_TRANSACCION_PENDIENTE_ID,
-      );
-      visibleTransaccion.transaccion.id_estado = estadoAnulada.id_estado;
-      visibleTransaccion.transaccion.id_estado_registro = estadoRegistroAnulado.id_estado;
-      visibleTransaccion.transaccion.saldo_pendiente = this.toNumericString(0);
-      visibleTransaccion.transaccion.fecha_ultimo_pago = null;
-      await manager.save(Transaccion, visibleTransaccion.transaccion);
+      await manager.delete(DetalleTransaccion, { id_transaccion: id });
+      await manager.delete(Transaccion, { id_transaccion: id, id_usuario: idUsuario });
     });
 
-    return this.findOneDetailed(id, idUsuario);
+    return {
+      message: `La transaccion con id ${id} fue eliminada`,
+      id_transaccion: id,
+    };
   }
 
   async reactivate(
@@ -1441,6 +1432,9 @@ export class TransaccionesService {
     const participanteIds = this.uniqueNumbers([
       ...detalles.map((detalle) => detalle.id_participante),
     ]);
+    const shouldResolveViewerTitularParticipante = transacciones.some(
+      (transaccion) => transaccion.id_usuario !== idUsuario,
+    );
 
     const [
       formasPago,
@@ -1449,6 +1443,7 @@ export class TransaccionesService {
       subcategorias,
       estados,
       participantes,
+      viewerTitularParticipante,
     ] = await Promise.all([
       metodoIds.length > 0
         ? this.formasPagoRepository.find({
@@ -1481,6 +1476,11 @@ export class TransaccionesService {
             where: { id_participante: In(participanteIds) },
           })
         : Promise.resolve([]),
+      shouldResolveViewerTitularParticipante
+        ? this.participantesRepository.findOne({
+            where: { id_usuario_titular: idUsuario },
+          })
+        : Promise.resolve(null),
     ]);
 
     const formasPagoMap = new Map(
@@ -1573,6 +1573,12 @@ export class TransaccionesService {
       const participantesDetalle = detallesTransaccion.map((detalle) => {
         const participante =
           participantesMap.get(detalle.id_participante) ?? null;
+        const participanteVisible =
+          !isOwner &&
+          detalle.id_usuario_relacionado === idUsuario &&
+          viewerTitularParticipante !== null
+            ? viewerTitularParticipante
+            : participante;
         const estado = estadosMap.get(detalle.id_estado) ?? null;
         const formaPago = formasPagoMap.get(detalle.id_metodo_pago) ?? null;
         const montoDetalle = Number(detalle.monto);
@@ -1590,9 +1596,13 @@ export class TransaccionesService {
 
         return {
           id: detalle.id,
-          id_participante: detalle.id_participante,
+          id_participante:
+            participanteVisible?.id_participante ?? detalle.id_participante,
           id_usuario_relacionado: detalle.id_usuario_relacionado ?? null,
-          nombre_participante: participante?.nombre_participante ?? null,
+          nombre_participante:
+            participanteVisible?.nombre_participante ??
+            participante?.nombre_participante ??
+            null,
           monto: montoDetalle,
           monto_pagado: montoPagadoDetalle,
           interes_pagado: interesPagadoDetalle,
@@ -3198,16 +3208,10 @@ export class TransaccionesService {
 
     const existingByParticipante =
       this.buildDetalleMapByParticipante(existingDetalles);
-    const submittedByParticipante = this.buildSubmittedCuotasMap(
+    const submittedByParticipante = this.buildSubmittedCuotasMapForAppliedUpdate(
       resolvedInput,
       titularParticipanteId,
     );
-
-    if (existingByParticipante.size !== submittedByParticipante.size) {
-      throw new BadRequestException(
-        "No puedes agregar o quitar participantes cuando ya existen cuotas con pagos aplicados",
-      );
-    }
 
     for (const [
       idParticipante,
@@ -3215,10 +3219,8 @@ export class TransaccionesService {
     ] of existingByParticipante.entries()) {
       const cuotasEnviadas = submittedByParticipante.get(idParticipante);
 
-      if (!cuotasEnviadas) {
-        throw new BadRequestException(
-          `Debes conservar todas las cuotas del participante ${idParticipante} porque ya existen pagos aplicados`,
-        );
+      if (!cuotasEnviadas || cuotasEnviadas.length === 0) {
+        continue;
       }
 
       const plan = this.buildDetalleUpdatePlan(
@@ -3271,6 +3273,20 @@ export class TransaccionesService {
     return cuotasPorParticipante;
   }
 
+  private buildSubmittedCuotasMapForAppliedUpdate(
+    resolvedInput: ResolvedTransaccionInput,
+    titularParticipanteId: number,
+  ): Map<number, ResolvedCuotaInput[]> {
+    return new Map(
+      Array.from(
+        this.buildSubmittedCuotasMap(
+          resolvedInput,
+          titularParticipanteId,
+        ).entries(),
+      ).filter(([, cuotas]) => this.getCuotasTotalCentavos(cuotas) > 0),
+    );
+  }
+
   private getSubmittedPorcentajeBaseForParticipante(
     resolvedInput: ResolvedTransaccionInput,
     titularParticipanteId: number,
@@ -3314,6 +3330,10 @@ export class TransaccionesService {
     }
 
     return detallesPorParticipante;
+  }
+
+  private getCuotasTotalCentavos(cuotas: ResolvedCuotaInput[]): number {
+    return cuotas.reduce((sum, cuota) => sum + this.toCents(cuota.monto), 0);
   }
 
   private buildDetalleUpdatePlan(
@@ -3387,17 +3407,56 @@ export class TransaccionesService {
   ): Promise<DetalleTransaccion[]> {
     const existingByParticipante =
       this.buildDetalleMapByParticipante(existingDetalles);
-    const submittedByParticipante = this.buildSubmittedCuotasMap(
+    const submittedByParticipante = this.buildSubmittedCuotasMapForAppliedUpdate(
       resolvedInput,
       titularParticipanteId,
     );
     const detallesActualizados: DetalleTransaccion[] = [];
+    const detalleBaseTransaccion = existingDetalles.find(
+      (detalle) => !this.isDetalleAnulado(detalle),
+    );
+
+    if (!detalleBaseTransaccion) {
+      throw new BadRequestException(
+        "No se encontraron cuotas activas para actualizar la transaccion",
+      );
+    }
 
     for (const [
       idParticipante,
       detallesParticipante,
     ] of existingByParticipante.entries()) {
       const cuotasEnviadas = submittedByParticipante.get(idParticipante) ?? [];
+      const detallesOrdenados = [...detallesParticipante].sort((left, right) => {
+        if ((left.numero_cuota ?? 1) !== (right.numero_cuota ?? 1)) {
+          return (left.numero_cuota ?? 1) - (right.numero_cuota ?? 1);
+        }
+
+        return left.id - right.id;
+      });
+      const detallesAplicados = detallesOrdenados.filter((detalle) =>
+        this.hasAppliedPaymentOnDetalle(detalle),
+      );
+      const detallesPendientes = detallesOrdenados.filter(
+        (detalle) => !this.hasAppliedPaymentOnDetalle(detalle),
+      );
+
+      if (cuotasEnviadas.length === 0) {
+        for (const [index, detalle] of detallesAplicados.entries()) {
+          detalle.numero_cuota = index + 1;
+          detalle.total_cuotas = detallesAplicados.length;
+          detallesActualizados.push(
+            await manager.save(DetalleTransaccion, detalle),
+          );
+        }
+
+        for (const detalle of detallesPendientes) {
+          await this.deleteDetalleTransaccion(manager, detalle.id);
+        }
+
+        continue;
+      }
+
       const porcentajeBaseParticipante =
         this.getSubmittedPorcentajeBaseForParticipante(
           resolvedInput,
@@ -3460,18 +3519,7 @@ export class TransaccionesService {
       }
 
       for (const detalle of plan.removedPendingDetalles) {
-        detalle.id_estado = ESTADO_TRANSACCION_ANULADA_ID;
-        detalle.monto = this.toNumericString(0);
-        detalle.monto_pagado = this.toNumericString(0);
-        detalle.interes_acumulado = this.toNumericString(0);
-        detalle.interes_pagado = this.toNumericString(0);
-        detalle.interes_pendiente = this.toNumericString(0);
-        detalle.dias_interes = 0;
-        detalle.fecha_pago = null;
-        detalle.fecha_ultimo_calculo = null;
-        detallesActualizados.push(
-          await manager.save(DetalleTransaccion, detalle),
-        );
+        await this.deleteDetalleTransaccion(manager, detalle.id);
       }
 
       for (let index = 0; index < plan.newCuotas.length; index += 1) {
@@ -3522,6 +3570,78 @@ export class TransaccionesService {
       }
     }
 
+    const participantesNuevosIds = Array.from(submittedByParticipante.keys()).filter(
+      (idParticipante) => !existingByParticipante.has(idParticipante),
+    );
+    const participantesNuevos =
+      participantesNuevosIds.length > 0
+        ? await manager.find(Participante, {
+            where: {
+              id_participante: In(
+                participantesNuevosIds.filter(
+                  (idParticipante) => idParticipante !== titularParticipanteId,
+                ),
+              ),
+            },
+          })
+        : [];
+    const participantesNuevosMap = new Map(
+      participantesNuevos.map((participante) => [
+        participante.id_participante,
+        participante.id_usuario_relacionado ?? null,
+      ]),
+    );
+
+    for (const idParticipante of participantesNuevosIds) {
+      const cuotasEnviadas = submittedByParticipante.get(idParticipante) ?? [];
+      const totalCuotasActivas = cuotasEnviadas.length;
+      const idUsuarioRelacionado =
+        idParticipante === titularParticipanteId
+          ? null
+          : (participantesNuevosMap.get(idParticipante) ?? null);
+
+      for (const [index, cuotaEnviada] of cuotasEnviadas.entries()) {
+        const nuevoDetalle = manager.create(DetalleTransaccion, {
+          id_usuario: detalleBaseTransaccion.id_usuario,
+          id_transaccion: detalleBaseTransaccion.id_transaccion,
+          fecha_pago: null,
+          fecha_programada: cuotaEnviada.fecha_programada,
+          fecha_inicio_interes: this.resolveFechaInicioInteresRestante(
+            detalleBaseTransaccion.fecha_ultimo_calculo,
+            detalleBaseTransaccion.fecha_inicio_interes ??
+              resolvedInput.fecha_inicio_interes,
+            cuotaEnviada.fecha_programada,
+            resolvedInput.cuotas_sin_intereses,
+          ),
+          interes_acumulado: this.toNumericString(0),
+          interes_pagado: this.toNumericString(0),
+          interes_pendiente: this.toNumericString(0),
+          fecha_ultimo_calculo: null,
+          dias_interes: 0,
+          id_participante: idParticipante,
+          id_usuario_relacionado: idUsuarioRelacionado,
+          monto: this.toNumericString(cuotaEnviada.monto),
+          monto_pagado: this.toNumericString(0),
+          numero_cuota: index + 1,
+          total_cuotas: totalCuotasActivas,
+          id_tipo_transaccion:
+            idParticipante === titularParticipanteId
+              ? DETALLE_TIPO_TRANSACCION_TITULAR_ID
+              : DETALLE_TIPO_TRANSACCION_PARTICIPANTE_ID,
+          id_metodo_pago: resolvedInput.id_metodo_pago,
+          id_estado: estadoPendienteId,
+        });
+        this.applyIngresoPagadoDefaultsToDetalleIfNeeded(
+          nuevoDetalle,
+          resolvedInput,
+          estadoPagadoId,
+        );
+        detallesActualizados.push(
+          await manager.save(DetalleTransaccion, nuevoDetalle),
+        );
+      }
+    }
+
     return detallesActualizados.sort((left, right) => {
       if (left.id_participante !== right.id_participante) {
         return left.id_participante - right.id_participante;
@@ -3533,6 +3653,13 @@ export class TransaccionesService {
 
       return left.id - right.id;
     });
+  }
+
+  private async deleteDetalleTransaccion(
+    manager: EntityManager,
+    idDetalle: number,
+  ): Promise<void> {
+    await manager.delete(DetalleTransaccion, { id: idDetalle });
   }
 
   private getMontoPagadoTotalCentavos(

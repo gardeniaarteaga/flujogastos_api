@@ -1197,4 +1197,460 @@ describe("TransaccionesService", () => {
       ],
     });
   });
+
+  it("normaliza el participante visible en transacciones recibidas para que el filtro incluya pagos a nombre del usuario", async () => {
+    const detalleRepository = createRepositoryMock<DetalleTransaccion>();
+    const formasPagoRepository = createRepositoryMock();
+    const categoriasRepository = createRepositoryMock();
+    const subcategoriasRepository = createRepositoryMock();
+    const participantesRepository = createRepositoryMock();
+    const estadosRepository = createRepositoryMock();
+    const tiposRepository = createRepositoryMock();
+
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      detalleRepository as never,
+      formasPagoRepository as never,
+      categoriasRepository as never,
+      subcategoriasRepository as never,
+      participantesRepository as never,
+      estadosRepository as never,
+      tiposRepository as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+
+    formasPagoRepository.find.mockResolvedValue([
+      {
+        id_metodo: 10,
+        nombre_metodo: "Tarjeta",
+        calcula_interes: false,
+        tasa_anual: null,
+      },
+    ]);
+    tiposRepository.find.mockResolvedValue([{ id_tipo: 1, nombre: "Gasto" }]);
+    categoriasRepository.find.mockResolvedValue([
+      { id_categoria: 5, nombre_categoria: "Servicios" },
+    ]);
+    subcategoriasRepository.find.mockResolvedValue([]);
+    estadosRepository.find.mockResolvedValue([
+      { id_estado: 3, flag: "T", estado: "ACTIVO", nombre_estado: "PENDIENTE" },
+      { id_estado: 8, flag: "R", estado: "ACTIVO", nombre_estado: "PENDIENTE" },
+      {
+        id_estado: 9,
+        flag: "R",
+        estado: "ACTIVO",
+        nombre_estado: "COMPLETADO",
+      },
+    ]);
+    participantesRepository.find.mockResolvedValue([
+      {
+        id_participante: 30,
+        nombre_participante: "Nombre externo del usuario",
+      },
+      {
+        id_participante: 40,
+        nombre_participante: "Titular externo",
+      },
+    ]);
+    participantesRepository.findOne.mockResolvedValue({
+      id_participante: 20,
+      id_usuario_titular: 9,
+      nombre_participante: "Mi participante titular",
+    });
+
+    const response = await serviceInternals.buildDetailedResponses(
+      [
+        {
+          id_transaccion: 77,
+          id_usuario: 1,
+          fecha: "2026-06-10",
+          monto: "25.00",
+          intereses: "0.00",
+          cuotas_sin_intereses: false,
+          saldo_pendiente: "25.00",
+          id_tipo_transaccion: 1,
+          id_tipo_cuota: 1,
+          id_metodo_pago: 10,
+          id_categoria: 5,
+          id_subcategoria: null,
+          id_estado: 3,
+          id_estado_registro: 8,
+          descripcion: "Cobro recibido",
+          pagocompartido: true,
+          fecha_ultimo_pago: null,
+          fecha_creacion: new Date("2026-06-10T12:00:00.000Z"),
+        },
+      ],
+      9,
+      [
+        {
+          id: 700,
+          id_transaccion: 77,
+          id_participante: 40,
+          id_usuario_relacionado: null,
+          monto: "0.00",
+          monto_pagado: "0.00",
+          interes_pagado: "0.00",
+          interes_pendiente: "0.00",
+          fecha_pago: null,
+          fecha_programada: null,
+          fecha_inicio_interes: null,
+          numero_cuota: 1,
+          total_cuotas: 1,
+          id_metodo_pago: 10,
+          id_estado: 3,
+          fecha_creacion: new Date("2026-06-10T12:00:00.000Z"),
+          id_tipo_transaccion: 1,
+        },
+        {
+          id: 701,
+          id_transaccion: 77,
+          id_participante: 30,
+          id_usuario_relacionado: 9,
+          monto: "25.00",
+          monto_pagado: "0.00",
+          interes_pagado: "0.00",
+          interes_pendiente: "0.00",
+          fecha_pago: null,
+          fecha_programada: null,
+          fecha_inicio_interes: null,
+          numero_cuota: 1,
+          total_cuotas: 1,
+          id_metodo_pago: 10,
+          id_estado: 3,
+          fecha_creacion: new Date("2026-06-10T12:00:00.000Z"),
+          id_tipo_transaccion: 2,
+        },
+      ],
+    );
+
+    expect(response).toEqual([
+      expect.objectContaining({
+        id_transaccion: 77,
+        es_propietario: false,
+        titular: "Titular externo",
+        participantes_detalle: [
+          expect.objectContaining({
+            id: 701,
+            id_participante: 20,
+            id_usuario_relacionado: 9,
+            nombre_participante: "Mi participante titular",
+            es_titular: false,
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("permite cambiar participantes y quitar al titular aunque existan cuotas con pagos aplicados", () => {
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+
+    const existingTransaccion = {
+      fecha: "2026-06-01",
+      monto: "100.00",
+      intereses: "0.00",
+      cuotas_sin_intereses: false,
+      id_tipo_transaccion: 1,
+      id_metodo_pago: 10,
+      id_estado: 4,
+      pagocompartido: true,
+    } as Transaccion;
+    const existingDetalles = [
+      {
+        id: 100,
+        id_participante: 20,
+        monto: "40.00",
+        monto_pagado: "0.00",
+        interes_pagado: "0.00",
+        fecha_pago: null,
+        fecha_programada: "2026-06-02",
+        numero_cuota: 1,
+        total_cuotas: 1,
+        id_estado: 3,
+      },
+      {
+        id: 200,
+        id_participante: 30,
+        monto: "30.00",
+        monto_pagado: "30.00",
+        interes_pagado: "0.00",
+        fecha_pago: "2026-06-03",
+        fecha_programada: "2026-06-03",
+        numero_cuota: 1,
+        total_cuotas: 2,
+        id_estado: 5,
+      },
+      {
+        id: 201,
+        id_participante: 30,
+        monto: "30.00",
+        monto_pagado: "0.00",
+        interes_pagado: "0.00",
+        fecha_pago: null,
+        fecha_programada: "2026-06-10",
+        numero_cuota: 2,
+        total_cuotas: 2,
+        id_estado: 3,
+      },
+    ] as DetalleTransaccion[];
+    const resolvedInput = {
+      fecha: "2026-06-01",
+      calcula_interes: false,
+      cuotas_sin_intereses: false,
+      titular_cuota_unica_pagada: false,
+      pago_variable: false,
+      fecha_inicio_interes: null,
+      monto: 100,
+      intereses: 0,
+      id_tipo_transaccion: 1,
+      id_tipo_cuota: 1,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 4,
+      descripcion: "Edicion",
+      pagocompartido: true,
+      cantidad_cuotas_titular: 1,
+      cuotas_titular: [{ monto: 0, fecha_programada: "2026-06-02" }],
+      participantes_detalle: [
+        {
+          id_participante: 31,
+          monto: 70,
+          porcentaje: null,
+          cantidad_cuotas: 1,
+          cuotas: [{ monto: 70, fecha_programada: "2026-06-20" }],
+        },
+      ],
+    };
+
+    expect(() =>
+      serviceInternals.validateUpdateWithAppliedPayments(
+        existingTransaccion,
+        existingDetalles,
+        20,
+        resolvedInput,
+      ),
+    ).not.toThrow();
+  });
+
+  it("elimina cuotas pendientes removidas y crea nuevas cuotas al cambiar de participante", async () => {
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+    let nextId = 900;
+    const manager = {
+      create: jest.fn((_entity, value) => ({ ...value, id: nextId++ })),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+      find: jest.fn().mockResolvedValue([
+        { id_participante: 31, id_usuario_relacionado: 91 },
+      ]),
+      save: jest.fn().mockImplementation(async (_entity, value) => value),
+    } as unknown as EntityManager;
+
+    const existingDetalles = [
+      {
+        id: 100,
+        id_usuario: 1,
+        id_transaccion: 77,
+        fecha_pago: null,
+        fecha_programada: "2026-06-02",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 20,
+        id_usuario_relacionado: null,
+        monto: "40.00",
+        monto_pagado: "0.00",
+        numero_cuota: 1,
+        total_cuotas: 1,
+        id_tipo_transaccion: 1,
+        id_metodo_pago: 10,
+        id_estado: 3,
+        fecha_creacion: new Date("2026-06-01T10:00:00.000Z"),
+      },
+      {
+        id: 200,
+        id_usuario: 1,
+        id_transaccion: 77,
+        fecha_pago: "2026-06-03",
+        fecha_programada: "2026-06-03",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 30,
+        id_usuario_relacionado: 90,
+        monto: "30.00",
+        monto_pagado: "30.00",
+        numero_cuota: 1,
+        total_cuotas: 2,
+        id_tipo_transaccion: 2,
+        id_metodo_pago: 10,
+        id_estado: 5,
+        fecha_creacion: new Date("2026-06-01T10:00:00.000Z"),
+      },
+      {
+        id: 201,
+        id_usuario: 1,
+        id_transaccion: 77,
+        fecha_pago: null,
+        fecha_programada: "2026-06-10",
+        fecha_inicio_interes: null,
+        interes_acumulado: "0.00",
+        interes_pagado: "0.00",
+        interes_pendiente: "0.00",
+        fecha_ultimo_calculo: null,
+        dias_interes: 0,
+        id_participante: 30,
+        id_usuario_relacionado: 90,
+        monto: "30.00",
+        monto_pagado: "0.00",
+        numero_cuota: 2,
+        total_cuotas: 2,
+        id_tipo_transaccion: 2,
+        id_metodo_pago: 10,
+        id_estado: 3,
+        fecha_creacion: new Date("2026-06-01T10:00:00.000Z"),
+      },
+    ] as DetalleTransaccion[];
+    const resolvedInput = {
+      fecha: "2026-06-01",
+      calcula_interes: false,
+      cuotas_sin_intereses: false,
+      titular_cuota_unica_pagada: false,
+      pago_variable: false,
+      fecha_inicio_interes: null,
+      monto: 100,
+      intereses: 0,
+      id_tipo_transaccion: 1,
+      id_tipo_cuota: 1,
+      id_metodo_pago: 10,
+      id_categoria: 5,
+      id_subcategoria: null,
+      id_estado: 4,
+      descripcion: "Edicion",
+      pagocompartido: true,
+      cantidad_cuotas_titular: 1,
+      cuotas_titular: [{ monto: 0, fecha_programada: "2026-06-02" }],
+      participantes_detalle: [
+        {
+          id_participante: 31,
+          monto: 70,
+          porcentaje: null,
+          cantidad_cuotas: 1,
+          cuotas: [{ monto: 70, fecha_programada: "2026-06-20" }],
+        },
+      ],
+    };
+
+    const detalles = await serviceInternals.updateDetallesPreservingAppliedPayments(
+      manager,
+      existingDetalles,
+      20,
+      resolvedInput,
+      3,
+      5,
+    );
+
+    expect(detalles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 200,
+          id_participante: 30,
+          id_estado: 5,
+          monto: "30.00",
+          monto_pagado: "30.00",
+        }),
+        expect.objectContaining({
+          id_participante: 31,
+          id_usuario_relacionado: 91,
+          id_estado: 3,
+          monto: "70.00",
+          numero_cuota: 1,
+          total_cuotas: 1,
+        }),
+      ]),
+    );
+    expect(detalles).toHaveLength(2);
+    expect(manager.delete).toHaveBeenCalledWith(DetalleTransaccion, { id: 100 });
+    expect(manager.delete).toHaveBeenCalledWith(DetalleTransaccion, { id: 201 });
+  });
+
+  it("el endpoint anular elimina detalles y encabezado de la transaccion", async () => {
+    const manager = {
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const dataSource = {
+      transaction: jest.fn(
+        async (callback: (managerArg: typeof manager) => Promise<void>) =>
+          callback(manager),
+      ),
+    };
+
+    const service = new TransaccionesService(
+      dataSource as never,
+      createRepositoryMock<Transaccion>() as never,
+      createRepositoryMock<DetalleTransaccion>() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      createRepositoryMock() as never,
+      {} as never,
+    );
+
+    jest.spyOn(service as any, "findOwnedTransaccion").mockResolvedValue({
+      transaccion: { id_transaccion: 77, id_usuario: 1 },
+      detalles: [],
+      titularParticipante: { id_participante: 20 },
+    });
+
+    const response = await service.cancel(77, 1);
+
+    expect(manager.delete).toHaveBeenNthCalledWith(1, DetalleTransaccion, {
+      id_transaccion: 77,
+    });
+    expect(manager.delete).toHaveBeenNthCalledWith(2, Transaccion, {
+      id_transaccion: 77,
+      id_usuario: 1,
+    });
+    expect(response).toEqual({
+      message: "La transaccion con id 77 fue eliminada",
+      id_transaccion: 77,
+    });
+  });
 });
