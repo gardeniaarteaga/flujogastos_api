@@ -1206,6 +1206,7 @@ describe("TransaccionesService", () => {
     const participantesRepository = createRepositoryMock();
     const estadosRepository = createRepositoryMock();
     const tiposRepository = createRepositoryMock();
+    const usuariosRepository = createRepositoryMock();
 
     const service = new TransaccionesService(
       {} as never,
@@ -1217,7 +1218,7 @@ describe("TransaccionesService", () => {
       participantesRepository as never,
       estadosRepository as never,
       tiposRepository as never,
-      createRepositoryMock() as never,
+      usuariosRepository as never,
       {} as never,
     );
     const serviceInternals = service as any;
@@ -1243,6 +1244,13 @@ describe("TransaccionesService", () => {
         flag: "R",
         estado: "ACTIVO",
         nombre_estado: "COMPLETADO",
+      },
+    ]);
+    usuariosRepository.find.mockResolvedValue([
+      {
+        id_usuario: 1,
+        username: "raul.zepeda",
+        nombre_completo: "Raul Zepeda",
       },
     ]);
     participantesRepository.find.mockResolvedValue([
@@ -1331,6 +1339,8 @@ describe("TransaccionesService", () => {
       expect.objectContaining({
         id_transaccion: 77,
         es_propietario: false,
+        id_usuario_origen: 1,
+        enviado_por: "Raul Zepeda",
         titular: "Titular externo",
         participantes_detalle: [
           expect.objectContaining({
@@ -1341,6 +1351,129 @@ describe("TransaccionesService", () => {
             es_titular: false,
           }),
         ],
+      }),
+    ]);
+  });
+
+  it("usa el usuario creador de la transaccion para enviado_por", async () => {
+    const detalleRepository = createRepositoryMock<DetalleTransaccion>();
+    const formasPagoRepository = createRepositoryMock();
+    const categoriasRepository = createRepositoryMock();
+    const subcategoriasRepository = createRepositoryMock();
+    const participantesRepository = createRepositoryMock();
+    const estadosRepository = createRepositoryMock();
+    const tiposRepository = createRepositoryMock();
+    const usuariosRepository = createRepositoryMock();
+
+    const service = new TransaccionesService(
+      {} as never,
+      createRepositoryMock<Transaccion>() as never,
+      detalleRepository as never,
+      formasPagoRepository as never,
+      categoriasRepository as never,
+      subcategoriasRepository as never,
+      participantesRepository as never,
+      estadosRepository as never,
+      tiposRepository as never,
+      usuariosRepository as never,
+      {} as never,
+    );
+    const serviceInternals = service as any;
+
+    formasPagoRepository.find.mockResolvedValue([
+      {
+        id_metodo: 10,
+        nombre_metodo: "Tarjeta",
+        calcula_interes: false,
+        tasa_anual: null,
+      },
+    ]);
+    tiposRepository.find.mockResolvedValue([{ id_tipo: 1, nombre: "Gasto" }]);
+    categoriasRepository.find.mockResolvedValue([
+      { id_categoria: 5, nombre_categoria: "Servicios" },
+    ]);
+    subcategoriasRepository.find.mockResolvedValue([]);
+    estadosRepository.find.mockResolvedValue([
+      { id_estado: 3, flag: "T", estado: "ACTIVO", nombre_estado: "PENDIENTE" },
+      { id_estado: 8, flag: "R", estado: "ACTIVO", nombre_estado: "PENDIENTE" },
+      {
+        id_estado: 9,
+        flag: "R",
+        estado: "ACTIVO",
+        nombre_estado: "COMPLETADO",
+      },
+    ]);
+    usuariosRepository.find.mockResolvedValue([
+      {
+        id_usuario: 44,
+        username: "creador.demo",
+        nombre_completo: "Usuario Creador",
+      },
+    ]);
+    participantesRepository.find.mockResolvedValue([
+      {
+        id_participante: 40,
+        nombre_participante: "Titular externo",
+      },
+      {
+        id_participante: 50,
+        nombre_participante: "Otro participante",
+      },
+    ]);
+
+    const response = await serviceInternals.buildDetailedResponses(
+      [
+        {
+          id_transaccion: 90,
+          id_usuario: 44,
+          fecha: "2026-06-10",
+          monto: "25.00",
+          intereses: "0.00",
+          cuotas_sin_intereses: false,
+          saldo_pendiente: "25.00",
+          id_tipo_transaccion: 1,
+          id_tipo_cuota: 1,
+          id_metodo_pago: 10,
+          id_categoria: 5,
+          id_subcategoria: null,
+          id_estado: 3,
+          id_estado_registro: 8,
+          descripcion: "Cobro recibido",
+          pagocompartido: true,
+          fecha_ultimo_pago: null,
+          fecha_creacion: new Date("2026-06-10T12:00:00.000Z"),
+        },
+      ],
+      44,
+      [
+        {
+          id: 800,
+          id_transaccion: 90,
+          id_participante: 40,
+          id_usuario_relacionado: null,
+          monto: "25.00",
+          monto_pagado: "0.00",
+          interes_pagado: "0.00",
+          interes_pendiente: "0.00",
+          fecha_pago: null,
+          fecha_programada: null,
+          fecha_inicio_interes: null,
+          numero_cuota: 1,
+          total_cuotas: 1,
+          id_metodo_pago: 10,
+          id_estado: 3,
+          fecha_creacion: new Date("2026-06-10T12:00:00.000Z"),
+          id_tipo_transaccion: 1,
+        },
+      ],
+    );
+
+    expect(response).toEqual([
+      expect.objectContaining({
+        id_transaccion: 90,
+        id_usuario_origen: 44,
+        enviado_por: "Usuario Creador",
+        titular: "Titular externo",
       }),
     ]);
   });

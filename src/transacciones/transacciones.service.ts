@@ -73,6 +73,8 @@ type ResolvedDetalleInput = {
 type TransaccionResponse = {
   id_transaccion: number;
   es_propietario: boolean;
+  id_usuario_origen: number;
+  enviado_por: string | null;
   fecha: string;
   monto: number;
   intereses: number;
@@ -1424,6 +1426,9 @@ export class TransaccionesService {
     const categoriaIds = this.uniqueNumbers(
       transacciones.map((transaccion) => transaccion.id_categoria),
     );
+    const usuarioIds = this.uniqueNumbers(
+      transacciones.map((transaccion) => transaccion.id_usuario),
+    );
     const subcategoriaIds = this.uniqueNumbers(
       transacciones
         .map((transaccion) => transaccion.id_subcategoria)
@@ -1440,6 +1445,7 @@ export class TransaccionesService {
       formasPago,
       tiposTransaccion,
       categorias,
+      usuarios,
       subcategorias,
       estados,
       participantes,
@@ -1458,6 +1464,11 @@ export class TransaccionesService {
       categoriaIds.length > 0
         ? this.categoriasRepository.find({
             where: { id_categoria: In(categoriaIds) },
+          })
+        : Promise.resolve([]),
+      usuarioIds.length > 0
+        ? this.usuariosRepository.find({
+            where: { id_usuario: In(usuarioIds) },
           })
         : Promise.resolve([]),
       subcategoriaIds.length > 0
@@ -1491,6 +1502,9 @@ export class TransaccionesService {
     );
     const categoriasMap = new Map(
       categorias.map((categoria) => [categoria.id_categoria, categoria]),
+    );
+    const usuariosMap = new Map(
+      usuarios.map((usuario) => [usuario.id_usuario, usuario]),
     );
     const subcategoriasMap = new Map(
       subcategorias.map((subcategoria) => [
@@ -1653,6 +1667,11 @@ export class TransaccionesService {
         estadoRegistroId !== null
           ? (estadosMap.get(estadoRegistroId) ?? null)
           : null;
+      const usuarioOrigen = usuariosMap.get(transaccion.id_usuario) ?? null;
+      const enviadoPor =
+        usuarioOrigen?.nombre_completo?.trim() ||
+        usuarioOrigen?.username?.trim() ||
+        null;
       const titular =
         participantesMap.get(titularParticipanteId ?? -1)
           ?.nombre_participante ?? null;
@@ -1687,6 +1706,8 @@ export class TransaccionesService {
       return {
         id_transaccion: transaccion.id_transaccion,
         es_propietario: isOwner,
+        id_usuario_origen: transaccion.id_usuario,
+        enviado_por: enviadoPor,
         fecha: transaccion.fecha,
         monto: isOwner ? Number(transaccion.monto) : montoVisible,
         intereses:
