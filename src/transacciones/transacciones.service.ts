@@ -302,6 +302,19 @@ export class TransaccionesService {
     return this.buildDetailedResponses(transacciones, idUsuario);
   }
 
+  async findOne(id: number, idUsuario: number): Promise<TransaccionResponse> {
+    const { transaccion } = await this.findAccessibleTransaccion(id, idUsuario);
+    const responses = await this.buildDetailedResponses(
+      [transaccion],
+      transaccion.id_usuario,
+    );
+    const response = responses[0];
+    if (!response) {
+      throw new NotFoundException(`La transaccion con id ${id} no existe`);
+    }
+    return response;
+  }
+
   async update(
     id: number,
     updateTransaccionDto: UpdateTransaccionDto,

@@ -31,6 +31,18 @@ export class TransaccionesController {
     );
   }
 
+  @Get(':id')
+  findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Headers('x-user-id') authenticatedUserId?: string,
+    @Query('id_usuario') idUsuario?: string,
+  ) {
+    return this.transaccionesService.findOne(
+      id,
+      this.resolveIdUsuario(authenticatedUserId, idUsuario),
+    );
+  }
+
   @Post()
   create(
     @Body() createTransaccionDto: CreateTransaccionDto,
