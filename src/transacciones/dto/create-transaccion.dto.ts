@@ -57,6 +57,11 @@ export class CreateTransaccionDto {
   descripcion?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  comentario?: string | null;
+
+  @IsOptional()
   @IsBoolean()
   pago_variable?: boolean;
 

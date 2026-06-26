@@ -95,6 +95,7 @@ type TransaccionResponse = {
   id_estado_registro: number | null;
   nombre_estado_registro: string | null;
   descripcion: string | null;
+  comentario: string | null;
   pagocompartido: boolean;
   fecha_ultimo_pago: Date | null;
   fecha_creacion: Date;
@@ -119,6 +120,7 @@ type ResolvedTransaccionInput = {
   id_subcategoria: number | null;
   id_estado: number;
   descripcion: string | null;
+  comentario: string | null;
   pagocompartido: boolean;
   cantidad_cuotas_titular: number;
   cuotas_titular: ResolvedCuotaInput[];
@@ -217,6 +219,7 @@ export class TransaccionesService {
         cuotas_sin_intereses: resolvedInput.cuotas_sin_intereses,
         fecha_ultimo_pago: null,
         pagocompartido: resolvedInput.pagocompartido,
+        comentario: resolvedInput.pagocompartido ? resolvedInput.comentario : null,
       });
 
       const savedTransaccion = await manager.save(Transaccion, transaccion);
@@ -405,6 +408,7 @@ export class TransaccionesService {
           estadoRegistroCompletado.id_estado,
         );
       visibleTransaccion.transaccion.descripcion = resolvedInput.descripcion;
+      visibleTransaccion.transaccion.comentario = resolvedInput.pagocompartido ? resolvedInput.comentario : null;
       visibleTransaccion.transaccion.pagocompartido =
         resolvedInput.pagocompartido;
 
@@ -1030,6 +1034,10 @@ export class TransaccionesService {
         dto.descripcion !== undefined
           ? this.normalizeDescripcion(dto.descripcion)
           : this.normalizeDescripcion(existingTransaccion?.descripcion),
+      comentario:
+        dto.comentario !== undefined
+          ? this.normalizeDescripcion(dto.comentario)
+          : this.normalizeDescripcion((existingTransaccion as any)?.comentario),
       pagocompartido:
         participantesDetalle.length > 0
           ? (dto.pagocompartido ?? existingTransaccion?.pagocompartido ?? true)
@@ -1749,6 +1757,7 @@ export class TransaccionesService {
         id_estado_registro: estadoRegistroId,
         nombre_estado_registro: estadoRegistro?.nombre_estado ?? null,
         descripcion: transaccion.descripcion,
+        comentario: transaccion.comentario ?? null,
         pagocompartido: transaccion.pagocompartido,
         fecha_ultimo_pago: transaccion.fecha_ultimo_pago,
         fecha_creacion: transaccion.fecha_creacion,
