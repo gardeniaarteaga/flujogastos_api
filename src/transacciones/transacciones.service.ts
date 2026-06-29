@@ -1288,6 +1288,11 @@ export class TransaccionesService {
       resolvedInput,
       estadoPagadoId,
     );
+    this.applyGastoPagadoSinInteresIfNeeded(
+      detalleEntities,
+      resolvedInput,
+      estadoPagadoId,
+    );
 
     return manager.save(DetalleTransaccion, detalleEntities);
   }
@@ -2897,6 +2902,28 @@ export class TransaccionesService {
     detalle.interes_pagado = this.toNumericString(0);
     detalle.interes_pendiente = this.toNumericString(0);
     detalle.id_estado = estadoPagadoId;
+  }
+
+  private applyGastoPagadoSinInteresIfNeeded(
+    detalleEntities: DetalleTransaccion[],
+    resolvedInput: ResolvedTransaccionInput,
+    estadoPagadoId: number,
+  ): void {
+    if (
+      resolvedInput.id_tipo_transaccion !== 1 ||
+      resolvedInput.id_estado !== estadoPagadoId ||
+      resolvedInput.calcula_interes
+    ) {
+      return;
+    }
+
+    detalleEntities.forEach((detalle) => {
+      detalle.fecha_pago = resolvedInput.fecha;
+      detalle.monto_pagado = this.toNumericString(Number(detalle.monto ?? 0));
+      detalle.interes_pagado = this.toNumericString(0);
+      detalle.interes_pendiente = this.toNumericString(0);
+      detalle.id_estado = estadoPagadoId;
+    });
   }
 
   private distributeMontoEnCuotas(
