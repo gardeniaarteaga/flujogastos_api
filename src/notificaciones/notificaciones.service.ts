@@ -1063,7 +1063,28 @@ export class NotificacionesService implements OnModuleInit {
       ON notificaciones (id_usuario_destino, leida)
     `);
 
+    await this.fixNotificacionesProgramadasSequence();
+
     await this.seedPeriodicidades();
+  }
+
+  private async fixNotificacionesProgramadasSequence(): Promise<void> {
+    await this.dataSource.query(`
+      CREATE SEQUENCE IF NOT EXISTS notificaciones_programadas_id_seq
+    `);
+
+    await this.dataSource.query(`
+      SELECT setval(
+        'notificaciones_programadas_id_seq',
+        COALESCE((SELECT MAX(id_notificacion_programada) FROM notificaciones_programadas), 0)
+      )
+    `);
+
+    await this.dataSource.query(`
+      ALTER TABLE notificaciones_programadas
+      ALTER COLUMN id_notificacion_programada
+      SET DEFAULT nextval('notificaciones_programadas_id_seq')
+    `);
   }
 
   private getLocalDateKey(offsetDays = 0): string {

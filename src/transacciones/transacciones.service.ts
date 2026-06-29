@@ -219,7 +219,7 @@ export class TransaccionesService {
         cuotas_sin_intereses: resolvedInput.cuotas_sin_intereses,
         fecha_ultimo_pago: null,
         pagocompartido: resolvedInput.pagocompartido,
-        comentario: resolvedInput.pagocompartido ? resolvedInput.comentario : null,
+        comentario: resolvedInput.comentario ?? null,
       });
 
       const savedTransaccion = await manager.save(Transaccion, transaccion);
@@ -408,7 +408,7 @@ export class TransaccionesService {
           estadoRegistroCompletado.id_estado,
         );
       visibleTransaccion.transaccion.descripcion = resolvedInput.descripcion;
-      visibleTransaccion.transaccion.comentario = resolvedInput.pagocompartido ? resolvedInput.comentario : null;
+      visibleTransaccion.transaccion.comentario = resolvedInput.comentario ?? null;
       visibleTransaccion.transaccion.pagocompartido =
         resolvedInput.pagocompartido;
 
