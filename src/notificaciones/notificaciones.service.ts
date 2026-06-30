@@ -181,10 +181,9 @@ export class NotificacionesService implements OnModuleInit {
     idUsuario: number,
   ): Promise<NotificacionProgramadaResponse[]> {
     await this.ensureSchemaReady();
-    const visibleUntilCutoffDate = this.getLocalDateKey(-15);
 
     const items = await this.notificacionesProgramadasRepository.find({
-      where: { id_usuario: idUsuario, estado: true },
+      where: { id_usuario: idUsuario },
       relations: { periodicidad: true },
       order: {
         dia_pago_programado: 'ASC',
@@ -192,11 +191,7 @@ export class NotificacionesService implements OnModuleInit {
       },
     });
 
-    const visibleItems = items.filter(
-      (item) => item.fecha_fin >= visibleUntilCutoffDate,
-    );
-
-    return visibleItems.map((item) => this.toProgramadaResponse(item));
+    return items.map((item) => this.toProgramadaResponse(item));
   }
 
   async createProgramada(
