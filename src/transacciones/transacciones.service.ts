@@ -68,6 +68,7 @@ type ResolvedDetalleInput = {
   porcentaje: number | null;
   cantidad_cuotas: number;
   cuotas: ResolvedCuotaInput[];
+  id_metodo_pago?: number;
 };
 
 type TransaccionResponse = {
@@ -990,6 +991,7 @@ export class TransaccionesService {
               ),
               cantidad_cuotas:
                 detalle.cuotas?.length ?? detalle.cantidad_cuotas ?? 1,
+              id_metodo_pago: detalle.id_metodo_pago,
             }),
           );
     const montoTitular =
@@ -1260,7 +1262,7 @@ export class TransaccionesService {
           detalle.id_participante,
           detalle.cuotas,
           DETALLE_TIPO_TRANSACCION_PARTICIPANTE_ID,
-          resolvedInput.id_metodo_pago,
+          detalle.id_metodo_pago ?? resolvedInput.id_metodo_pago,
           estadoInicialDetalleId,
           participantesRelacionadosMap.get(detalle.id_participante) ?? null,
           fechaInicioInteres,
@@ -3625,7 +3627,7 @@ export class TransaccionesService {
           numero_cuota: plan.activeExistingDetalles.length + index + 1,
           total_cuotas: totalCuotasActivas,
           id_tipo_transaccion: detalleBase.id_tipo_transaccion,
-          id_metodo_pago: resolvedInput.id_metodo_pago,
+          id_metodo_pago: detalleBase.id_metodo_pago ?? resolvedInput.id_metodo_pago,
           id_estado: estadoPendienteId,
         });
         this.applyIngresoPagadoDefaultsToDetalleIfNeeded(

@@ -33,6 +33,11 @@ export class CreateDetalleTransaccionDto {
   cantidad_cuotas?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  id_metodo_pago?: number;
+
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
