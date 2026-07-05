@@ -69,7 +69,7 @@ export class Transaccion {
   @Column({ name: 'pagocompartido', type: 'boolean' })
   pagocompartido!: boolean;
 
-  @Column({ name: 'comentario', type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'comentario', type: 'varchar', length: 75, nullable: true })
   comentario!: string | null;
 }
 

@@ -58,7 +58,7 @@ export class CreateTransaccionDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(50)
+  @MaxLength(75)
   comentario?: string | null;
 
   @IsOptional()
