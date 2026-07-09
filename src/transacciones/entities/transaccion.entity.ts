@@ -59,6 +59,9 @@ export class Transaccion {
   @Column({ name: 'cuotas_sin_intereses', type: 'boolean', default: false })
   cuotas_sin_intereses!: boolean;
 
+  @Column({ name: 'recordatorio_pago', type: 'boolean', default: false })
+  recordatorio_pago!: boolean;
+
 
   @Column({ name: 'fecha_ultimo_pago', type: 'timestamp', nullable: true })
   fecha_ultimo_pago!: Date | null;

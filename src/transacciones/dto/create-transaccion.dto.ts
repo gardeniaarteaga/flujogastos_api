@@ -74,6 +74,10 @@ export class CreateTransaccionDto {
   @IsBoolean()
   cuotas_sin_intereses?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  recordatorio_pago?: boolean;
+
   @IsBoolean()
   pagocompartido!: boolean;
 

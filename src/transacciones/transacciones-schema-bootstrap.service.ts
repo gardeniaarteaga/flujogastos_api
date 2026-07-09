@@ -206,16 +206,23 @@ export class TransaccionesSchemaBootstrapService implements OnModuleInit {
     `);
 
     await this.dataSource.query(`
+      ALTER TABLE transacciones
+      ADD COLUMN IF NOT EXISTS recordatorio_pago BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+
+    await this.dataSource.query(`
       UPDATE transacciones
       SET
         intereses = COALESCE(intereses, 0),
         saldo_pendiente = COALESCE(saldo_pendiente, 0),
         cuotas_sin_intereses = COALESCE(cuotas_sin_intereses, FALSE),
-        pagocompartido = COALESCE(pagocompartido, FALSE)
+        pagocompartido = COALESCE(pagocompartido, FALSE),
+        recordatorio_pago = COALESCE(recordatorio_pago, FALSE)
       WHERE intereses IS NULL
          OR saldo_pendiente IS NULL
          OR cuotas_sin_intereses IS NULL
          OR pagocompartido IS NULL
+         OR recordatorio_pago IS NULL
     `);
 
     await this.dataSource.query(`

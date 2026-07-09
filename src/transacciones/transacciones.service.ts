@@ -57,6 +57,11 @@ type TransaccionDetalleResponse = {
   es_titular: boolean;
 };
 
+type RecordatorioPendienteResponse = {
+  id_transaccion: number;
+  descripcion: string | null;
+};
+
 type ResolvedCuotaInput = {
   monto: number;
   fecha_programada: string | null;
@@ -98,6 +103,7 @@ type TransaccionResponse = {
   descripcion: string | null;
   comentario: string | null;
   pagocompartido: boolean;
+  recordatorio_pago: boolean;
   fecha_ultimo_pago: Date | null;
   fecha_creacion: Date;
   titular: string | null;
@@ -123,6 +129,7 @@ type ResolvedTransaccionInput = {
   descripcion: string | null;
   comentario: string | null;
   pagocompartido: boolean;
+  recordatorio_pago: boolean;
   cantidad_cuotas_titular: number;
   cuotas_titular: ResolvedCuotaInput[];
   participantes_detalle: ResolvedDetalleInput[];
@@ -218,6 +225,7 @@ export class TransaccionesService {
         intereses: this.toNumericString(resolvedInput.intereses),
         saldo_pendiente: this.toNumericString(resolvedInput.monto),
         cuotas_sin_intereses: resolvedInput.cuotas_sin_intereses,
+        recordatorio_pago: resolvedInput.recordatorio_pago,
         fecha_ultimo_pago: null,
         pagocompartido: resolvedInput.pagocompartido,
         comentario: resolvedInput.comentario ?? null,
@@ -304,6 +312,118 @@ export class TransaccionesService {
     });
 
     return this.buildDetailedResponses(transacciones, idUsuario);
+  }
+
+  async findRecordatoriosPendientes(
+    idUsuario: number,
+  ): Promise<RecordatorioPendienteResponse[]> {
+    const transaccionesPropias = await this.transaccionesRepository.find({
+      where: { id_usuario: idUsuario, recordatorio_pago: true },
+    });
+    const detallesRelacionados = await this.detalleTransaccionesRepository.find(
+      {
+        where: { id_usuario_relacionado: idUsuario },
+      },
+    );
+    const transaccionesPropiasIds = new Set(
+      transaccionesPropias.map((transaccion) => transaccion.id_transaccion),
+    );
+    const transaccionesRelacionadasIds = this.uniqueNumbers(
+      detallesRelacionados
+        .map((detalle) => detalle.id_transaccion)
+        .filter((idTransaccion) => !transaccionesPropiasIds.has(idTransaccion)),
+    );
+    const transaccionesRelacionadas =
+      transaccionesRelacionadasIds.length > 0
+        ? await this.transaccionesRepository.find({
+            where: {
+              id_transaccion: In(transaccionesRelacionadasIds),
+              recordatorio_pago: true,
+            },
+          })
+        : [];
+    const transaccionesConRecordatorio = [
+      ...transaccionesPropias,
+      ...transaccionesRelacionadas,
+    ];
+    if (transaccionesConRecordatorio.length === 0) {
+      return [];
+    }
+
+    const transaccionesMap = new Map(
+      transaccionesConRecordatorio.map((transaccion) => [
+        transaccion.id_transaccion,
+        transaccion,
+      ]),
+    );
+    const hoy = new Date();
+    const finDeMesActual = new Date(
+      Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + 1, 0),
+    )
+      .toISOString()
+      .slice(0, 10);
+
+    const detalles = await this.detalleTransaccionesRepository.find({
+      where: { id_transaccion: In([...transaccionesMap.keys()]) },
+    });
+
+    const detallesCalificados = detalles.filter((detalle) => {
+      const transaccion = transaccionesMap.get(detalle.id_transaccion);
+      if (!transaccion) {
+        return false;
+      }
+      const esCuotaTitular =
+        detalle.id_tipo_transaccion === DETALLE_TIPO_TRANSACCION_TITULAR_ID;
+      const perteneceAlUsuario =
+        detalle.id_usuario_relacionado === idUsuario ||
+        (esCuotaTitular && transaccion.id_usuario === idUsuario);
+      const estaPendiente =
+        detalle.id_estado === ESTADO_TRANSACCION_PENDIENTE_ID ||
+        detalle.id_estado === ESTADO_TRANSACCION_PAGO_PARCIAL_ID;
+      const enPeriodo =
+        !detalle.fecha_programada || detalle.fecha_programada <= finDeMesActual;
+      return perteneceAlUsuario && estaPendiente && enPeriodo;
+    });
+
+    const transaccionesCalificadas = new Map<
+      number,
+      { descripcion: string | null; primeraFechaProgramada: string | null }
+    >();
+    for (const detalle of detallesCalificados) {
+      const transaccion = transaccionesMap.get(detalle.id_transaccion)!;
+      const existente = transaccionesCalificadas.get(detalle.id_transaccion);
+      if (!existente) {
+        transaccionesCalificadas.set(detalle.id_transaccion, {
+          descripcion: transaccion.descripcion,
+          primeraFechaProgramada: detalle.fecha_programada,
+        });
+        continue;
+      }
+      if (
+        detalle.fecha_programada &&
+        (!existente.primeraFechaProgramada ||
+          detalle.fecha_programada < existente.primeraFechaProgramada)
+      ) {
+        existente.primeraFechaProgramada = detalle.fecha_programada;
+      }
+    }
+
+    return [...transaccionesCalificadas.entries()]
+      .map(([idTransaccion, datos]) => ({
+        id_transaccion: idTransaccion,
+        descripcion: datos.descripcion,
+        primeraFechaProgramada: datos.primeraFechaProgramada,
+      }))
+      .sort((left, right) => {
+        const leftDate = left.primeraFechaProgramada
+          ? new Date(left.primeraFechaProgramada).getTime()
+          : 0;
+        const rightDate = right.primeraFechaProgramada
+          ? new Date(right.primeraFechaProgramada).getTime()
+          : 0;
+        return leftDate - rightDate;
+      })
+      .map(({ id_transaccion, descripcion }) => ({ id_transaccion, descripcion }));
   }
 
   async findOne(id: number, idUsuario: number): Promise<TransaccionResponse> {
@@ -402,6 +522,8 @@ export class TransaccionesService {
       );
       visibleTransaccion.transaccion.cuotas_sin_intereses =
         resolvedInput.cuotas_sin_intereses;
+      visibleTransaccion.transaccion.recordatorio_pago =
+        resolvedInput.recordatorio_pago;
       visibleTransaccion.transaccion.id_estado_registro =
         this.resolveEstadoRegistroDesdeIngreso(
           resolvedInput,
@@ -1008,6 +1130,10 @@ export class TransaccionesService {
       cuotas_sin_intereses:
         dto.cuotas_sin_intereses ??
         existingTransaccion?.cuotas_sin_intereses ??
+        false,
+      recordatorio_pago:
+        dto.recordatorio_pago ??
+        existingTransaccion?.recordatorio_pago ??
         false,
       titular_cuota_unica_pagada: dto.titular_cuota_unica_pagada ?? false,
       pago_variable: dto.pago_variable ?? false,
@@ -1766,6 +1892,7 @@ export class TransaccionesService {
         descripcion: transaccion.descripcion,
         comentario: transaccion.comentario ?? null,
         pagocompartido: transaccion.pagocompartido,
+        recordatorio_pago: transaccion.recordatorio_pago,
         fecha_ultimo_pago: transaccion.fecha_ultimo_pago,
         fecha_creacion: transaccion.fecha_creacion,
         titular,

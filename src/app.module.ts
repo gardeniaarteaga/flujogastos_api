@@ -16,6 +16,7 @@ import { EstadosTransaccionModule } from './estados-transaccion/estados-transacc
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { InteresesModule } from './intereses/intereses.module';
 import { TransaccionesModule } from './transacciones/transacciones.module';
+import { EstadoCuentaModule } from './estado-cuenta/estado-cuenta.module';
 
 const getFirstConfigValue = (
   configService: ConfigService,
@@ -95,6 +96,7 @@ const shouldUseDatabaseSsl = (configService: ConfigService): boolean => {
     NotificacionesModule,
     InteresesModule,
     TransaccionesModule,
+    EstadoCuentaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

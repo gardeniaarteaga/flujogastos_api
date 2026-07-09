@@ -31,6 +31,16 @@ export class TransaccionesController {
     );
   }
 
+  @Get('recordatorios')
+  findRecordatoriosPendientes(
+    @Headers('x-user-id') authenticatedUserId?: string,
+    @Query('id_usuario') idUsuario?: string,
+  ) {
+    return this.transaccionesService.findRecordatoriosPendientes(
+      this.resolveIdUsuario(authenticatedUserId, idUsuario),
+    );
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseIntPipe) id: number,
