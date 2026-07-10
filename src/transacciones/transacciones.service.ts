@@ -357,8 +357,13 @@ export class TransaccionesService {
       ]),
     );
     const hoy = new Date();
-    const finDeMesActual = new Date(
-      Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + 1, 0),
+    const DIAS_ANTICIPACION_RECORDATORIO = 12;
+    const limiteRecordatorio = new Date(
+      Date.UTC(
+        hoy.getUTCFullYear(),
+        hoy.getUTCMonth(),
+        hoy.getUTCDate() + DIAS_ANTICIPACION_RECORDATORIO,
+      ),
     )
       .toISOString()
       .slice(0, 10);
@@ -381,7 +386,8 @@ export class TransaccionesService {
         detalle.id_estado === ESTADO_TRANSACCION_PENDIENTE_ID ||
         detalle.id_estado === ESTADO_TRANSACCION_PAGO_PARCIAL_ID;
       const enPeriodo =
-        !detalle.fecha_programada || detalle.fecha_programada <= finDeMesActual;
+        !detalle.fecha_programada ||
+        detalle.fecha_programada <= limiteRecordatorio;
       return perteneceAlUsuario && estaPendiente && enPeriodo;
     });
 
