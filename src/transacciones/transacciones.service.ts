@@ -1268,8 +1268,9 @@ export class TransaccionesService {
     );
 
     const allowZeroAmountCuotas =
-      existingTransaccion !== undefined &&
-      this.hasAppliedPayments(existingDetalles);
+      resolvedInput.pago_variable ||
+      (existingTransaccion !== undefined &&
+        this.hasAppliedPayments(existingDetalles));
 
     this.validateCuotasCubrenMonto(
       resolvedInput.cuotas_titular,
