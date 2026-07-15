@@ -708,6 +708,7 @@ export class TransaccionesService {
         }
 
         const montoPagoCentavos = this.toCents(pago.monto);
+        const fechaPagoDetalle = pago.fecha_pago ?? fechaPagoActual;
 
         if (montoPagoCentavos > montoPendienteCentavos) {
           throw new BadRequestException(
@@ -752,7 +753,7 @@ export class TransaccionesService {
             montoPagadoActualizadoCentavos,
             saldoPrincipalRestanteCentavos,
             interesPagadoActualizadoCentavos,
-            fechaPagoActual,
+            fechaPagoDetalle,
             estadoPendiente.id_estado,
             estadoPagado.id_estado,
             detallesMap,
@@ -769,7 +770,7 @@ export class TransaccionesService {
         detalle.interes_pendiente = this.toNumericString(
           this.centsToAmount(interesPendienteActualizadoCentavos),
         );
-        detalle.fecha_pago = fechaPagoActual;
+        detalle.fecha_pago = fechaPagoDetalle;
         detalle.id_estado =
           saldoRestanteCentavos === 0
             ? estadoPagado.id_estado
