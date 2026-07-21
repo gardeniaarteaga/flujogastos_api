@@ -60,6 +60,8 @@ type TransaccionDetalleResponse = {
 type RecordatorioPendienteResponse = {
   id_transaccion: number;
   descripcion: string | null;
+  fecha_programada: string | null;
+  cuotas_vencidas: number;
 };
 
 type ResolvedCuotaInput = {
@@ -358,6 +360,7 @@ export class TransaccionesService {
     );
     const hoy = new Date();
     const DIAS_ANTICIPACION_RECORDATORIO = 12;
+    const hoyISO = this.todayAsLocalIsoDate();
     const limiteRecordatorio = new Date(
       Date.UTC(
         hoy.getUTCFullYear(),
@@ -393,15 +396,22 @@ export class TransaccionesService {
 
     const transaccionesCalificadas = new Map<
       number,
-      { descripcion: string | null; primeraFechaProgramada: string | null }
+      {
+        descripcion: string | null;
+        primeraFechaProgramada: string | null;
+        cuotasVencidas: number;
+      }
     >();
     for (const detalle of detallesCalificados) {
       const transaccion = transaccionesMap.get(detalle.id_transaccion)!;
+      const esVencida =
+        !!detalle.fecha_programada && detalle.fecha_programada < hoyISO;
       const existente = transaccionesCalificadas.get(detalle.id_transaccion);
       if (!existente) {
         transaccionesCalificadas.set(detalle.id_transaccion, {
           descripcion: transaccion.descripcion,
           primeraFechaProgramada: detalle.fecha_programada,
+          cuotasVencidas: esVencida ? 1 : 0,
         });
         continue;
       }
@@ -412,6 +422,9 @@ export class TransaccionesService {
       ) {
         existente.primeraFechaProgramada = detalle.fecha_programada;
       }
+      if (esVencida) {
+        existente.cuotasVencidas += 1;
+      }
     }
 
     return [...transaccionesCalificadas.entries()]
@@ -419,6 +432,7 @@ export class TransaccionesService {
         id_transaccion: idTransaccion,
         descripcion: datos.descripcion,
         primeraFechaProgramada: datos.primeraFechaProgramada,
+        cuotasVencidas: datos.cuotasVencidas,
       }))
       .sort((left, right) => {
         const leftDate = left.primeraFechaProgramada
@@ -429,7 +443,12 @@ export class TransaccionesService {
           : 0;
         return leftDate - rightDate;
       })
-      .map(({ id_transaccion, descripcion }) => ({ id_transaccion, descripcion }));
+      .map(({ id_transaccion, descripcion, primeraFechaProgramada, cuotasVencidas }) => ({
+        id_transaccion,
+        descripcion,
+        fecha_programada: primeraFechaProgramada,
+        cuotas_vencidas: cuotasVencidas,
+      }));
   }
 
   async findOne(id: number, idUsuario: number): Promise<TransaccionResponse> {
