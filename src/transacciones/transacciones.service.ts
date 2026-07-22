@@ -887,14 +887,8 @@ export class TransaccionesService {
       );
       const pagos = detalleIds.map((idDetalle) => {
         const detalle = detallesAccesiblesMap.get(idDetalle);
-        const canApplyMassivePago =
-          detalle &&
-          (detalle.id_usuario_relacionado === idUsuario ||
-            (visibleTransaccion.isOwner &&
-              detalle.id_tipo_transaccion ===
-                DETALLE_TIPO_TRANSACCION_TITULAR_ID));
 
-        if (!canApplyMassivePago) {
+        if (!detalle) {
           throw new ForbiddenException(
             `No tienes permiso para aplicar pagos sobre la cuota ${idDetalle}`,
           );
