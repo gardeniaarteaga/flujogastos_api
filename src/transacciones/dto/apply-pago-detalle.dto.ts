@@ -14,4 +14,10 @@ export class ApplyPagoDetalleDto {
     message: 'fecha_pago debe tener el formato YYYY-MM-DD',
   })
   fecha_pago?: string;
+
+  @IsOptional()
+  @Matches(/^\d{1,20}$/, {
+    message: 'id_referencia_banco debe contener solo numeros (maximo 20 digitos)',
+  })
+  id_referencia_banco?: string;
 }

@@ -53,6 +53,7 @@ type TransaccionDetalleResponse = {
   nombre_forma_pago: string | null;
   id_estado: number;
   nombre_estado: string | null;
+  id_referencia_banco: string | null;
   fecha_creacion: Date;
   es_titular: boolean;
 };
@@ -776,6 +777,7 @@ export class TransaccionesService {
             estadoPendiente.id_estado,
             estadoPagado.id_estado,
             detallesMap,
+            pago.id_referencia_banco ?? null,
           );
           continue;
         }
@@ -794,6 +796,7 @@ export class TransaccionesService {
           saldoRestanteCentavos === 0
             ? estadoPagado.id_estado
             : estadoPagoParcial.id_estado;
+        detalle.id_referencia_banco = pago.id_referencia_banco ?? null;
         const savedDetalle = await manager.save(DetalleTransaccion, detalle);
         detallesMap.set(savedDetalle.id, savedDetalle);
       }
@@ -907,6 +910,7 @@ export class TransaccionesService {
         return {
           id_detalle: idDetalle,
           monto: saldoPendiente,
+          id_referencia_banco: applyPagosMasivosDto.id_referencia_banco,
         };
       });
 
@@ -935,6 +939,7 @@ export class TransaccionesService {
     estadoPendienteId: number,
     estadoPagadoId: number,
     detallesMap: Map<number, DetalleTransaccion>,
+    idReferenciaBanco: string | null = null,
   ): Promise<void> {
     const cuotasParticipante = Array.from(detallesMap.values())
       .filter(
@@ -961,6 +966,7 @@ export class TransaccionesService {
     detalle.fecha_pago = fechaPagoActual;
     detalle.id_estado = estadoPagadoId;
     detalle.total_cuotas = nuevoTotalCuotas;
+    detalle.id_referencia_banco = idReferenciaBanco;
 
     const detalleSaldoComplementario = manager.create(DetalleTransaccion, {
       id_usuario: detalle.id_usuario,
@@ -1812,6 +1818,7 @@ export class TransaccionesService {
           nombre_forma_pago: formaPago?.nombre_metodo ?? null,
           id_estado: detalle.id_estado,
           nombre_estado: estado?.nombre_estado ?? null,
+          id_referencia_banco: detalle.id_referencia_banco ?? null,
           fecha_creacion: detalle.fecha_creacion,
           es_titular:
             titularParticipanteId !== null &&

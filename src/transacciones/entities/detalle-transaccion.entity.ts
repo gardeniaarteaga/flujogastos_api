@@ -86,6 +86,9 @@ export class DetalleTransaccion {
   @Column({ name: 'id_estado', type: 'int' })
   id_estado!: number;
 
+  @Column({ name: 'id_referencia_banco', type: 'varchar', length: 20, nullable: true })
+  id_referencia_banco!: string | null;
+
   @CreateDateColumn({ name: 'fecha_creacion', type: 'timestamp' })
   fecha_creacion!: Date;
 }
