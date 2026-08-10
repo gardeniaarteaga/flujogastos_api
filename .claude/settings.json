@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr \"LISTENING\")",
+      "Bash(tasklist //FI \"PID eq 23004\")",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "Bash(taskkill //F //IM node.exe)"
+    ]
+  }
+}
