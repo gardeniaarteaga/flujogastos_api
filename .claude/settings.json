@@ -5,7 +5,10 @@
       "Bash(tasklist //FI \"PID eq 23004\")",
       "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
       "Bash(taskkill //F //IM node.exe)",
-      "Bash(xargs grep -liE \"pago.?parcial|estado.*pagado|PAGADO|cuota\")"
+      "Bash(xargs grep -liE \"pago.?parcial|estado.*pagado|PAGADO|cuota\")",
+      "Bash(psql --version)",
+      "Bash(node \"C:/Users/ASTRI_~1/AppData/Local/Temp/claude/c--PROYECTO-FLUJO-DE-GASTOS-flujo-gastos-api/cd78c95d-f817-42ad-9fb8-5bfce527768d/scratchpad/check_alimentacion.js\")",
+      "Bash(node scratch-check.js)"
     ]
   }
 }

@@ -3398,8 +3398,9 @@ export class TransaccionesService {
     }
 
     if (
+      !resolvedInput.pago_variable &&
       this.toCents(resolvedInput.monto) !==
-      this.toCents(Number(existingTransaccion.monto))
+        this.toCents(Number(existingTransaccion.monto))
     ) {
       throw new BadRequestException(
         "No puedes cambiar el monto total de una transaccion que ya tiene cuotas con pagos aplicados",
@@ -3750,6 +3751,13 @@ export class TransaccionesService {
         );
         detalle.numero_cuota = index + 1;
         detalle.total_cuotas = totalCuotasActivas;
+        if (!this.isDetalleAnulado(detalle)) {
+          // Una cuota sin pagos aplicados siempre debe quedar en PENDIENTE
+          // al editarse: monto/saldo pueden venir de un estado legado (p.ej.
+          // una cuota de pago variable creada en 0.00) que haya arrastrado
+          // otro id_estado, y eso bloquearia el saldo_pendiente recalculado.
+          detalle.id_estado = estadoPendienteId;
+        }
         this.applyIngresoPagadoDefaultsToDetalleIfNeeded(
           detalle,
           resolvedInput,
