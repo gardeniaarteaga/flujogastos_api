@@ -28,6 +28,7 @@ import { Transaccion } from "./entities/transaccion.entity";
 const DETALLE_TIPO_TRANSACCION_TITULAR_ID = 1;
 const DETALLE_TIPO_TRANSACCION_PARTICIPANTE_ID = 2;
 const TIPO_CUOTA_FIJA_ID = 1;
+const TIPO_CUOTA_VARIABLE_ID = 2;
 const ESTADO_TRANSACCION_ANULADA_ID = 2;
 const ESTADO_TRANSACCION_PENDIENTE_ID = 3;
 const ESTADO_TRANSACCION_PAGO_PARCIAL_ID = 4;
@@ -1162,7 +1163,10 @@ export class TransaccionesService {
         existingTransaccion?.recordatorio_pago ??
         false,
       titular_cuota_unica_pagada: dto.titular_cuota_unica_pagada ?? false,
-      pago_variable: dto.pago_variable ?? false,
+      pago_variable:
+        dto.pago_variable ??
+        (dto.id_tipo_cuota ?? existingTransaccion?.id_tipo_cuota) ===
+          TIPO_CUOTA_VARIABLE_ID,
       fecha_inicio_interes: null,
       monto: montoTitular,
       intereses:
@@ -1388,6 +1392,7 @@ export class TransaccionesService {
       resolvedInput.id_estado,
       estadoPendienteId,
       estadoPagadoId,
+      resolvedInput.pago_variable,
     );
 
     const detalleEntities = [
@@ -1456,7 +1461,12 @@ export class TransaccionesService {
     idEstadoTransaccion: number,
     estadoPendienteId: number,
     estadoPagadoId: number,
+    pagoVariable: boolean,
   ): number {
+    if (pagoVariable) {
+      return estadoPendienteId;
+    }
+
     return idEstadoTransaccion === estadoPagadoId
       ? estadoPagadoId
       : estadoPendienteId;
@@ -2105,10 +2115,19 @@ export class TransaccionesService {
 
       for (const detalle of detallesParticipante) {
         const update = updateMap.get(detalle.id)!;
+        const montoActualCentavos = this.toCents(Number(detalle.monto));
         const montoPagadoCentavos = this.toCents(
           Number(detalle.monto_pagado ?? 0),
         );
         const nuevoMontoCentavos = this.toCents(update.monto);
+        const yaEstaTotalmentePagada =
+          montoPagadoCentavos > 0 && montoPagadoCentavos >= montoActualCentavos;
+
+        if (yaEstaTotalmentePagada && nuevoMontoCentavos !== montoActualCentavos) {
+          throw new BadRequestException(
+            `La cuota ${detalle.id} ya esta pagada y no puede modificarse`,
+          );
+        }
 
         if (nuevoMontoCentavos < montoPagadoCentavos) {
           throw new BadRequestException(
@@ -2985,7 +3004,7 @@ export class TransaccionesService {
     resolvedInput: ResolvedTransaccionInput,
     estadoPagadoId: number,
   ): void {
-    if (!resolvedInput.titular_cuota_unica_pagada) {
+    if (!resolvedInput.titular_cuota_unica_pagada || resolvedInput.pago_variable) {
       return;
     }
 
@@ -3017,7 +3036,8 @@ export class TransaccionesService {
   ): void {
     if (
       resolvedInput.id_tipo_transaccion !== 2 ||
-      resolvedInput.id_estado !== estadoPagadoId
+      resolvedInput.id_estado !== estadoPagadoId ||
+      resolvedInput.pago_variable
     ) {
       return;
     }
@@ -3069,7 +3089,8 @@ export class TransaccionesService {
     if (
       resolvedInput.id_tipo_transaccion !== 1 ||
       resolvedInput.id_estado !== estadoPagadoId ||
-      resolvedInput.calcula_interes
+      resolvedInput.calcula_interes ||
+      resolvedInput.pago_variable
     ) {
       return;
     }
@@ -3707,15 +3728,9 @@ export class TransaccionesService {
         }
 
         if (this.hasAppliedPaymentOnDetalle(detalle)) {
-          detalle.monto = this.toNumericString(cuotaEnviada.monto);
-          detalle.fecha_programada = cuotaEnviada.fecha_programada;
-
-          detalle.fecha_inicio_interes = this.resolveFechaInicioInteresRestante(
-            detalle.fecha_ultimo_calculo,
-            resolvedInput.fecha_inicio_interes,
-            cuotaEnviada.fecha_programada,
-            resolvedInput.cuotas_sin_intereses,
-          );
+          // Una cuota con pagos ya aplicados no puede tener su monto, fecha
+          // programada ni estado modificados desde la edicion de la
+          // transaccion: solo se reindexa su numero_cuota/total_cuotas.
           detalle.numero_cuota = index + 1;
           detalle.total_cuotas = totalCuotasActivas;
           detallesActualizados.push(
