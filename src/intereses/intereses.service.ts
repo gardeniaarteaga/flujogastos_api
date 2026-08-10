@@ -4,17 +4,32 @@ import { DataSource, EntityManager } from 'typeorm';
 
 export type CalculoInteresesOrigen = 'manual' | 'scheduler';
 
+export interface CalculoInteresesDetalleItem {
+  id_transaccion: number;
+  descripcion: string | null;
+  interes_generado: number;
+  saldo_pendiente: number;
+  intereses_a_la_fecha: number;
+}
+
 export interface CalculoInteresesResult {
   fecha_calculo: string;
   origen: CalculoInteresesOrigen;
   registros_procesados: number;
   total_intereses_generados: number;
+  detalle: CalculoInteresesDetalleItem[];
 }
+
+type CalculoInteresesDetalleGenerado = Pick<
+  CalculoInteresesDetalleItem,
+  'id_transaccion' | 'descripcion' | 'interes_generado'
+>;
 
 type RawCalculoInteresesRow = {
   fecha_calculo: string;
   registros_procesados: string | number;
   total_intereses_generados: string | number | null;
+  detalle: CalculoInteresesDetalleGenerado[] | null;
 };
 
 @Injectable()
@@ -34,18 +49,74 @@ export class InteresesService {
 
       await this.syncTransaccionesIntereses(manager);
 
+      const detalle = await this.enrichDetalleConSaldos(
+        manager,
+        calculationSummary.detalle,
+      );
+
       return {
         fecha_calculo: calculationSummary.fecha_calculo,
         origen,
         registros_procesados: calculationSummary.registros_procesados,
         total_intereses_generados: calculationSummary.total_intereses_generados,
+        detalle,
+      };
+    });
+  }
+
+  private async enrichDetalleConSaldos(
+    manager: EntityManager,
+    detalle: CalculoInteresesDetalleGenerado[],
+  ): Promise<CalculoInteresesDetalleItem[]> {
+    if (detalle.length === 0) {
+      return [];
+    }
+
+    const ids = detalle.map((item) => item.id_transaccion);
+    const rows = await manager.query(
+      `
+        SELECT
+          id_transaccion,
+          COALESCE(saldo_pendiente, 0)::numeric(12, 2) AS saldo_pendiente,
+          COALESCE(intereses, 0)::numeric(12, 2) AS intereses
+        FROM transacciones
+        WHERE id_transaccion = ANY($1::int[])
+      `,
+      [ids],
+    );
+
+    const saldosPorTransaccion = new Map<
+      number,
+      { saldo_pendiente: number; intereses: number }
+    >(
+      rows.map((row: { id_transaccion: number; saldo_pendiente: string; intereses: string }) => [
+        Number(row.id_transaccion),
+        {
+          saldo_pendiente: Number(row.saldo_pendiente),
+          intereses: Number(row.intereses),
+        },
+      ]),
+    );
+
+    return detalle.map((item) => {
+      const saldos = saldosPorTransaccion.get(item.id_transaccion);
+
+      return {
+        ...item,
+        saldo_pendiente: saldos?.saldo_pendiente ?? 0,
+        intereses_a_la_fecha: saldos?.intereses ?? item.interes_generado,
       };
     });
   }
 
   private async calculateDetalleIntereses(
     manager: EntityManager,
-  ): Promise<Omit<CalculoInteresesResult, 'origen'>> {
+  ): Promise<{
+    fecha_calculo: string;
+    registros_procesados: number;
+    total_intereses_generados: number;
+    detalle: CalculoInteresesDetalleGenerado[];
+  }> {
     const [result] = await manager.query(
       `
         WITH parametros AS (
@@ -56,6 +127,8 @@ export class InteresesService {
         detalles_base AS (
           SELECT
             dt.id,
+            dt.id_transaccion,
+            t.descripcion,
             dt.fecha_inicio_interes,
             COALESCE(dt.dias_interes, 0) AS dias_interes_actual,
             COALESCE(dt.interes_acumulado, 0)::numeric AS interes_acumulado_actual,
@@ -89,6 +162,8 @@ export class InteresesService {
         detalles_objetivo AS (
           SELECT
             db.id,
+            db.id_transaccion,
+            db.descripcion,
             CASE
               WHEN p.fecha_actual < db.fecha_inicio_interes
                 OR p.fecha_calculo < db.fecha_inicio_interes
@@ -151,15 +226,29 @@ export class InteresesService {
                 0
               )
             )
-          RETURNING objetivo.interes_generado_total
+          RETURNING objetivo.id_transaccion, objetivo.descripcion, objetivo.interes_generado_total
         )
         SELECT
           p.fecha_calculo::text AS fecha_calculo,
-          COUNT(*) FILTER (WHERE a.interes_generado_total > 0)::int AS registros_procesados,
-          COALESCE(SUM(a.interes_generado_total), 0)::numeric(12, 2) AS total_intereses_generados
+          (SELECT COUNT(*) FROM actualizados a WHERE a.interes_generado_total > 0)::int AS registros_procesados,
+          (SELECT COALESCE(SUM(a.interes_generado_total), 0) FROM actualizados a)::numeric(12, 2) AS total_intereses_generados,
+          (
+            SELECT COALESCE(json_agg(json_build_object(
+              'id_transaccion', resumen.id_transaccion,
+              'descripcion', resumen.descripcion,
+              'interes_generado', resumen.interes_generado_total
+            ) ORDER BY resumen.id_transaccion ASC), '[]'::json)
+            FROM (
+              SELECT
+                a.id_transaccion,
+                a.descripcion,
+                SUM(a.interes_generado_total)::numeric(12, 2) AS interes_generado_total
+              FROM actualizados a
+              WHERE a.interes_generado_total > 0
+              GROUP BY a.id_transaccion, a.descripcion
+            ) resumen
+          ) AS detalle
         FROM parametros p
-        LEFT JOIN actualizados a ON true
-        GROUP BY p.fecha_calculo
       `,
       [InteresesService.BUSINESS_TIME_ZONE],
     );
@@ -170,6 +259,11 @@ export class InteresesService {
       fecha_calculo: summary?.fecha_calculo ?? this.getLocalDateKey(-1),
       registros_procesados: Number(summary?.registros_procesados ?? 0),
       total_intereses_generados: Number(summary?.total_intereses_generados ?? 0),
+      detalle: (summary?.detalle ?? []).map((item) => ({
+        id_transaccion: Number(item.id_transaccion),
+        descripcion: item.descripcion,
+        interes_generado: Number(item.interes_generado),
+      })),
     };
   }
 
