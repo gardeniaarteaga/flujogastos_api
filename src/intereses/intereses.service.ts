@@ -7,6 +7,7 @@ export type CalculoInteresesOrigen = 'manual' | 'scheduler';
 export interface CalculoInteresesDetalleItem {
   id_transaccion: number;
   descripcion: string | null;
+  participante: string;
   interes_generado: number;
   saldo_pendiente: number;
   intereses_a_la_fecha: number;
@@ -22,7 +23,7 @@ export interface CalculoInteresesResult {
 
 type CalculoInteresesDetalleGenerado = Pick<
   CalculoInteresesDetalleItem,
-  'id_transaccion' | 'descripcion' | 'interes_generado'
+  'id_transaccion' | 'descripcion' | 'participante' | 'interes_generado'
 >;
 
 type RawCalculoInteresesRow = {
@@ -129,6 +130,10 @@ export class InteresesService {
             dt.id,
             dt.id_transaccion,
             t.descripcion,
+            CASE
+              WHEN dt.id_tipo_transaccion = 1 THEN 'Titular'
+              ELSE COALESCE(part.nombre_participante, '-')
+            END AS participante,
             dt.fecha_inicio_interes,
             COALESCE(dt.dias_interes, 0) AS dias_interes_actual,
             COALESCE(dt.interes_acumulado, 0)::numeric AS interes_acumulado_actual,
@@ -147,6 +152,8 @@ export class InteresesService {
             ON et.id_estado = t.id_estado
           INNER JOIN metodos_pago mp
             ON mp.id_metodo = dt.id_metodo_pago
+          LEFT JOIN participantes part
+            ON part.id_participante = dt.id_participante
           WHERE et.flag = 'T'
             AND UPPER(COALESCE(et.estado, '')) = 'ACTIVO'
             AND UPPER(COALESCE(et.nombre_estado, '')) <> 'ANULADO'
@@ -164,6 +171,7 @@ export class InteresesService {
             db.id,
             db.id_transaccion,
             db.descripcion,
+            db.participante,
             CASE
               WHEN p.fecha_actual < db.fecha_inicio_interes
                 OR p.fecha_calculo < db.fecha_inicio_interes
@@ -226,7 +234,7 @@ export class InteresesService {
                 0
               )
             )
-          RETURNING objetivo.id_transaccion, objetivo.descripcion, objetivo.interes_generado_total
+          RETURNING objetivo.id_transaccion, objetivo.descripcion, objetivo.participante, objetivo.interes_generado_total
         )
         SELECT
           p.fecha_calculo::text AS fecha_calculo,
@@ -236,16 +244,18 @@ export class InteresesService {
             SELECT COALESCE(json_agg(json_build_object(
               'id_transaccion', resumen.id_transaccion,
               'descripcion', resumen.descripcion,
+              'participante', resumen.participante,
               'interes_generado', resumen.interes_generado_total
             ) ORDER BY resumen.id_transaccion ASC), '[]'::json)
             FROM (
               SELECT
                 a.id_transaccion,
                 a.descripcion,
+                a.participante,
                 SUM(a.interes_generado_total)::numeric(12, 2) AS interes_generado_total
               FROM actualizados a
               WHERE a.interes_generado_total > 0
-              GROUP BY a.id_transaccion, a.descripcion
+              GROUP BY a.id_transaccion, a.descripcion, a.participante
             ) resumen
           ) AS detalle
         FROM parametros p
@@ -262,6 +272,7 @@ export class InteresesService {
       detalle: (summary?.detalle ?? []).map((item) => ({
         id_transaccion: Number(item.id_transaccion),
         descripcion: item.descripcion,
+        participante: item.participante,
         interes_generado: Number(item.interes_generado),
       })),
     };
