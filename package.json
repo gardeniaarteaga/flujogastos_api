@@ -4,6 +4,9 @@
   "private": true,
   "description": "API backend para Flujo de Gastos con NestJS, TypeORM y PostgreSQL.",
   "license": "UNLICENSED",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
