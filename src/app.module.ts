@@ -79,7 +79,6 @@ const shouldUseDatabaseSsl = (configService: ConfigService): boolean => {
         ssl: shouldUseDatabaseSsl(configService)
           ? { rejectUnauthorized: false }
           : false,
-        entities: ['dist/**/*.entity{.ts,.js}'],
         autoLoadEntities: true,
         synchronize: false,
       }),
