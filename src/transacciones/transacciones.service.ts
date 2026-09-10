@@ -2292,9 +2292,14 @@ export class TransaccionesService {
       return estadoPendienteId;
     }
 
-    const hayPendientes = detallesActivos.some(
-      (detalle) => this.getSaldoPendienteCentavos(detalle) > 0,
+    const hayCuotasSinDefinir = detallesActivos.some((detalle) =>
+      this.isCuotaVariableSinDefinir(detalle, estadoPagadoId),
     );
+    const hayPendientes =
+      hayCuotasSinDefinir ||
+      detallesActivos.some(
+        (detalle) => this.getSaldoPendienteCentavos(detalle) > 0,
+      );
     const hayPagados = detallesActivos.some(
       (detalle) => this.getMontoPagadoTotalCentavos(detalle) > 0,
     );
@@ -2314,6 +2319,20 @@ export class TransaccionesService {
     }
 
     return estadoPendienteId;
+  }
+
+  private isCuotaVariableSinDefinir(
+    detalle: Pick<
+      DetalleTransaccion,
+      "id_estado" | "monto" | "monto_pagado" | "interes_pagado"
+    >,
+    estadoPagadoId: number,
+  ): boolean {
+    return (
+      detalle.id_estado !== estadoPagadoId &&
+      this.toCents(Number(detalle.monto)) === 0 &&
+      this.getMontoPagadoTotalCentavos(detalle) === 0
+    );
   }
 
   private resolveEstadoIngresoTransaccion(
