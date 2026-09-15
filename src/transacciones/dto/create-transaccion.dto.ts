@@ -86,6 +86,10 @@ export class CreateTransaccionDto {
   titular_cuota_unica_pagada?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  titular_primera_cuota_pagada?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   cantidad_cuotas_titular?: number;

@@ -2,6 +2,7 @@
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsNumber,
   IsOptional,
@@ -43,6 +44,10 @@ export class CreateDetalleTransaccionDto {
   @ValidateNested({ each: true })
   @Type(() => CuotaProgramadaDto)
   cuotas?: CuotaProgramadaDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  primera_cuota_pagada?: boolean;
 }
 
 

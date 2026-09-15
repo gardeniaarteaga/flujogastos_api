@@ -78,6 +78,7 @@ type ResolvedDetalleInput = {
   cantidad_cuotas: number;
   cuotas: ResolvedCuotaInput[];
   id_metodo_pago?: number;
+  primera_cuota_pagada: boolean;
 };
 
 type TransaccionResponse = {
@@ -120,6 +121,7 @@ type ResolvedTransaccionInput = {
   calcula_interes: boolean;
   cuotas_sin_intereses: boolean;
   titular_cuota_unica_pagada: boolean;
+  titular_primera_cuota_pagada: boolean;
   pago_variable: boolean;
   fecha_inicio_interes: string | null;
   monto: number;
@@ -1141,6 +1143,7 @@ export class TransaccionesService {
               cantidad_cuotas:
                 detalle.cuotas?.length ?? detalle.cantidad_cuotas ?? 1,
               id_metodo_pago: detalle.id_metodo_pago,
+              primera_cuota_pagada: detalle.primera_cuota_pagada ?? false,
             }),
           );
     const montoTitular =
@@ -1163,6 +1166,7 @@ export class TransaccionesService {
         existingTransaccion?.recordatorio_pago ??
         false,
       titular_cuota_unica_pagada: dto.titular_cuota_unica_pagada ?? false,
+      titular_primera_cuota_pagada: dto.titular_primera_cuota_pagada ?? false,
       pago_variable:
         dto.pago_variable ??
         (dto.id_tipo_cuota ?? existingTransaccion?.id_tipo_cuota) ===
@@ -1438,6 +1442,12 @@ export class TransaccionesService {
     }
 
     this.applyTitularSinglePaymentIfNeeded(
+      detalleEntities,
+      titularParticipanteId,
+      resolvedInput,
+      estadoPagadoId,
+    );
+    this.applyPrimeraCuotaPagadaIfNeeded(
       detalleEntities,
       titularParticipanteId,
       resolvedInput,
@@ -3048,6 +3058,64 @@ export class TransaccionesService {
     detalleTitular.id_estado = estadoPagadoId;
   }
 
+  private marcarPrimeraCuotaComoPagada(
+    detalleEntities: DetalleTransaccion[],
+    idParticipante: number,
+    idTipoTransaccion: number,
+    fechaPago: string,
+    estadoPagadoId: number,
+  ): void {
+    const detalle = detalleEntities.find(
+      (item) =>
+        item.id_participante === idParticipante &&
+        item.id_tipo_transaccion === idTipoTransaccion &&
+        item.numero_cuota === 1,
+    );
+
+    if (!detalle || this.toCents(Number(detalle.monto ?? 0)) <= 0) {
+      return;
+    }
+
+    detalle.monto_pagado = this.toNumericString(Number(detalle.monto ?? 0));
+    detalle.interes_pagado = this.toNumericString(0);
+    detalle.interes_pendiente = this.toNumericString(0);
+    detalle.fecha_pago = fechaPago;
+    detalle.id_estado = estadoPagadoId;
+  }
+
+  private applyPrimeraCuotaPagadaIfNeeded(
+    detalleEntities: DetalleTransaccion[],
+    titularParticipanteId: number,
+    resolvedInput: ResolvedTransaccionInput,
+    estadoPagadoId: number,
+  ): void {
+    if (resolvedInput.pago_variable) {
+      return;
+    }
+
+    if (resolvedInput.titular_primera_cuota_pagada) {
+      this.marcarPrimeraCuotaComoPagada(
+        detalleEntities,
+        titularParticipanteId,
+        DETALLE_TIPO_TRANSACCION_TITULAR_ID,
+        resolvedInput.fecha,
+        estadoPagadoId,
+      );
+    }
+
+    resolvedInput.participantes_detalle
+      .filter((detalle) => detalle.primera_cuota_pagada)
+      .forEach((detalle) => {
+        this.marcarPrimeraCuotaComoPagada(
+          detalleEntities,
+          detalle.id_participante,
+          DETALLE_TIPO_TRANSACCION_PARTICIPANTE_ID,
+          resolvedInput.fecha,
+          estadoPagadoId,
+        );
+      });
+  }
+
   private applyIngresoPagadoDefaultsIfNeeded(
     detalleEntities: DetalleTransaccion[],
     resolvedInput: ResolvedTransaccionInput,
@@ -3227,6 +3295,7 @@ export class TransaccionesService {
             ),
           },
         ],
+        primera_cuota_pagada: false,
       });
     }
 
