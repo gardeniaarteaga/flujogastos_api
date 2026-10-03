@@ -58,6 +58,9 @@ export type EstadoCuentaResponse = Omit<EstadoCuenta, CampoMonto> &
     compras_diferencia: number;
     pagos_calculado: number;
     pagos_diferencia: number;
+    intereses_calculado: number;
+    intereses_estado_cuenta: number;
+    intereses_diferencia: number;
   };
 
 @Injectable()
@@ -265,10 +268,11 @@ export class EstadoCuentaService {
     idUsuario: number,
     fechaInicio: string,
     fechaFin: string,
-  ): Promise<{ compras: number; pagos: number }> {
+  ): Promise<{ compras: number; pagos: number; intereses: number }> {
     const comprasResult = await this.transaccionRepository
       .createQueryBuilder('transaccion')
       .select('COALESCE(SUM(transaccion.monto), 0)', 'total')
+      .addSelect('COALESCE(SUM(transaccion.intereses), 0)', 'intereses')
       .where('transaccion.id_metodo_pago = :idMetodoPago', { idMetodoPago })
       .andWhere('transaccion.id_usuario = :idUsuario', { idUsuario })
       .andWhere('transaccion.fecha BETWEEN :fechaInicio AND :fechaFin', { fechaInicio, fechaFin })
@@ -276,7 +280,7 @@ export class EstadoCuentaService {
         '(transaccion.id_estado_registro IS NULL OR transaccion.id_estado_registro != :anulado)',
         { anulado: ESTADO_REGISTRO_ANULADO_ID },
       )
-      .getRawOne<{ total: string }>();
+      .getRawOne<{ total: string; intereses: string }>();
 
     const pagosResult = await this.detalleTransaccionRepository
       .createQueryBuilder('detalle')
@@ -294,6 +298,7 @@ export class EstadoCuentaService {
     return {
       compras: Number(comprasResult?.total ?? 0),
       pagos: Number(pagosResult?.total ?? 0),
+      intereses: Number(comprasResult?.intereses ?? 0),
     };
   }
 
@@ -301,7 +306,7 @@ export class EstadoCuentaService {
     registro: EstadoCuenta,
     nombreForma: string,
   ): Promise<EstadoCuentaResponse> {
-    const { compras, pagos } = await this.calcularComprasYPagos(
+    const { compras, pagos, intereses } = await this.calcularComprasYPagos(
       registro.id_metodo_pago,
       registro.id_usuario,
       registro.fecha_inicio_periodo,
@@ -310,6 +315,7 @@ export class EstadoCuentaService {
 
     const compraRetiros = Number(registro.compras_retiros);
     const pagosAcreditaciones = Number(registro.pagos_acreditaciones);
+    const interesEstadoCuenta = Number(registro.interes_corriente);
     const totalDeuda =
       Number(registro.cuota_extrafinanciamiento) +
       Number(registro.cuota_infrafinanciamiento) +
@@ -338,6 +344,9 @@ export class EstadoCuentaService {
       compras_diferencia: this.roundMoney(comprasEstadoCuenta - compras),
       pagos_calculado: this.roundMoney(pagos),
       pagos_diferencia: this.roundMoney(pagosAcreditaciones - pagos),
+      intereses_calculado: this.roundMoney(intereses),
+      intereses_estado_cuenta: this.roundMoney(interesEstadoCuenta),
+      intereses_diferencia: this.roundMoney(interesEstadoCuenta - intereses),
     };
   }
 
